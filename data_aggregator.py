@@ -4,6 +4,7 @@ Fetches and normalizes market data from Aster DEX, calculates technical indicato
 """
 from typing import Dict, List, Optional
 import time
+import json
 from aster_client import AsterClient
 from indicators import TechnicalIndicators
 from config import Config
@@ -238,33 +239,54 @@ class DataAggregator:
         Returns:
             Dict with account metrics
         """
-        # Get account balances
-        balances = self.client.get_account_balances()
-        
-        # Get current positions
-        positions = self.client.get_positions()
-        
-        # Calculate account metrics
-        total_equity = 0.0
-        available_cash = 0.0
-        
-        if isinstance(balances, dict):
-            total_equity = float(balances.get('totalEquity', 0.0))
-            available_cash = float(balances.get('availableBalance', 0.0))
+        # Get account info (includes balances and positions)
+        try:
+            account_data = self.client.get_account_info()
+            
+            # Calculate total equity and available balance
+            total_equity = float(account_data.get('totalWalletBalance', 0.0))
+            available_cash = float(account_data.get('availableBalance', 0.0))
+            
+            # Get positions from account data
+            positions_data = account_data.get('positions', [])
+            
+        except Exception as e:
+            print(f"Warning: Could not fetch account info from /fapi/v2/account: {e}")
+            # Fallback: try separate balance and position endpoints
+            try:
+                balances = self.client.get_account_balances()
+                positions_data = self.client.get_positions()
+                
+                # Calculate from balance array
+                total_equity = sum(float(b.get('balance', 0.0)) for b in balances if isinstance(b, dict))
+                available_cash = sum(float(b.get('availableBalance', 0.0)) for b in balances if isinstance(b, dict))
+            except Exception as e2:
+                print(f"Warning: Could not fetch balances/positions: {e2}")
+                return {
+                    'total_return_percent': 0.0,
+                    'available_cash': 0.0,
+                    'account_value': 0.0,
+                    'sharpe_ratio': 0.0,
+                    'positions': []
+                }
         
         # Format positions
         formatted_positions = []
-        for pos in positions:
-            formatted_positions.append({
-                'symbol': pos.get('symbol', ''),
-                'side': pos.get('side', ''),
-                'size': float(pos.get('size', 0.0)),
-                'entry_price': float(pos.get('entryPrice', 0.0)),
-                'mark_price': float(pos.get('markPrice', 0.0)),
-                'liquidation_price': float(pos.get('liquidationPrice', 0.0)),
-                'unrealized_pnl': float(pos.get('unrealizedPnl', 0.0)),
-                'leverage': int(pos.get('leverage', 1))
-            })
+        for pos in positions_data:
+            # Only include positions with non-zero amount
+            pos_amt = float(pos.get('positionAmt', 0.0))
+            if pos_amt != 0:
+                formatted_positions.append({
+                    'symbol': pos.get('symbol', ''),
+                    'side': 'LONG' if pos_amt > 0 else 'SHORT',
+                    'size': abs(pos_amt),
+                    'entry_price': float(pos.get('entryPrice', 0.0)),
+                    'mark_price': float(pos.get('markPrice', 0.0)),
+                    'liquidation_price': float(pos.get('liquidationPrice', 0.0)),
+                    'unrealized_pnl': float(pos.get('unRealizedProfit', 0.0)),
+                    'leverage': int(pos.get('leverage', 1)),
+                    'notional': float(pos.get('notional', 0.0))
+                })
         
         return {
             'total_return_percent': 0.0,  # Would need to track initial capital
@@ -273,4 +295,141 @@ class DataAggregator:
             'sharpe_ratio': 0.0,  # Would need historical returns to calculate
             'positions': formatted_positions
         }
+    
+    def print_market_data(self, market_data: Dict):
+        """
+        Print market data in a beautiful, readable format.
+        
+        Args:
+            market_data: The complete market data structure
+        """
+        print("\n" + "="*100)
+        print("📊 市场数据总览 (Market Data Overview)")
+        print("="*100)
+        
+        # Print metadata
+        metadata = market_data.get('metadata', {})
+        print(f"\n⏰ 时间信息:")
+        print(f"   当前时间: {metadata.get('current_timestamp', 'N/A')}")
+        print(f"   运行时长: {metadata.get('minutes_trading', 0)} 分钟")
+        print(f"   调用次数: {metadata.get('invocation_count', 0)}")
+        
+        # Print account info
+        account_info = market_data.get('account_info', {})
+        print(f"\n💰 账户信息:")
+        print(f"   账户总值: ${account_info.get('account_value', 0):.2f}")
+        print(f"   可用资金: ${account_info.get('available_cash', 0):.2f}")
+        print(f"   总回报率: {account_info.get('total_return_percent', 0):.2f}%")
+        print(f"   夏普比率: {account_info.get('sharpe_ratio', 0):.2f}")
+        
+        # Print positions
+        positions = account_info.get('positions', [])
+        if positions:
+            print(f"\n📈 持仓信息 ({len(positions)} 个持仓):")
+            for pos in positions:
+                print(f"\n   {pos.get('symbol', 'N/A')} - {pos.get('side', 'N/A')}")
+                print(f"      持仓量: {pos.get('size', 0):.4f}")
+                print(f"      开仓价: ${pos.get('entry_price', 0):.2f}")
+                print(f"      当前价: ${pos.get('mark_price', 0):.2f}")
+                print(f"      强平价: ${pos.get('liquidation_price', 0):.2f}")
+                print(f"      未实现盈亏: ${pos.get('unrealized_pnl', 0):.2f}")
+                print(f"      杠杆: {pos.get('leverage', 1)}x")
+        else:
+            print(f"\n📈 持仓信息: 无持仓")
+        
+        # Print coin data
+        coins_data = market_data.get('coins_data', {})
+        print(f"\n💎 交易对数据 ({len(coins_data)} 个交易对):")
+        
+        for symbol, data in coins_data.items():
+            print(f"\n{'─'*100}")
+            print(f"🪙 {symbol}")
+            print(f"{'─'*100}")
+            
+            # Current price and funding
+            print(f"\n   💵 价格信息:")
+            print(f"      当前价格: ${data.get('current_price', 0):.2f}")
+            print(f"      资金费率: {data.get('funding_rate', 0):.6f}")
+            
+            # Open interest
+            oi = data.get('open_interest', {})
+            print(f"\n   📊 持仓量:")
+            print(f"      最新持仓量: {oi.get('latest', 0):.2f}")
+            print(f"      平均持仓量: {oi.get('average', 0):.2f}")
+            
+            # Order book
+            order_book = data.get('order_book', {})
+            bids = order_book.get('bids', [])[:3]
+            asks = order_book.get('asks', [])[:3]
+            if bids or asks:
+                print(f"\n   📖 订单簿 (Top 3):")
+                if asks:
+                    print(f"      卖单 (Asks):")
+                    for ask in reversed(asks):
+                        if len(ask) >= 2:
+                            print(f"         ${float(ask[0]):.2f} × {float(ask[1]):.4f}")
+                if bids:
+                    print(f"      买单 (Bids):")
+                    for bid in bids:
+                        if len(bid) >= 2:
+                            print(f"         ${float(bid[0]):.2f} × {float(bid[1]):.4f}")
+            
+            # Intraday indicators
+            intraday = data.get('intraday', {})
+            ind = intraday.get('indicators', {})
+            current = ind.get('current', {})
+            
+            if current:
+                print(f"\n   📈 短期技术指标 ({intraday.get('interval', '3m')} 周期):")
+                if current.get('ema20') is not None:
+                    print(f"      EMA20: ${current.get('ema20', 0):.2f}")
+                if current.get('ema50') is not None:
+                    print(f"      EMA50: ${current.get('ema50', 0):.2f}")
+                if current.get('rsi7') is not None:
+                    print(f"      RSI(7): {current.get('rsi7', 0):.2f}")
+                if current.get('rsi14') is not None:
+                    print(f"      RSI(14): {current.get('rsi14', 0):.2f}")
+                if current.get('macd') is not None:
+                    print(f"      MACD: {current.get('macd', 0):.4f}")
+                    print(f"      MACD Signal: {current.get('macd_signal', 0):.4f}")
+                    print(f"      MACD Histogram: {current.get('macd_histogram', 0):.4f}")
+                if current.get('bb_upper') is not None:
+                    print(f"      布林带上轨: ${current.get('bb_upper', 0):.2f}")
+                    print(f"      布林带中轨: ${current.get('bb_middle', 0):.2f}")
+                    print(f"      布林带下轨: ${current.get('bb_lower', 0):.2f}")
+                if current.get('atr14') is not None:
+                    print(f"      ATR(14): ${current.get('atr14', 0):.2f}")
+                if current.get('adx') is not None:
+                    print(f"      ADX: {current.get('adx', 0):.2f}")
+            
+            # Longterm indicators
+            longterm = data.get('longterm', {})
+            lt_ind = longterm.get('indicators', {})
+            lt_current = lt_ind.get('current', {})
+            
+            if lt_current:
+                print(f"\n   📊 长期技术指标 ({longterm.get('interval', '4h')} 周期):")
+                if lt_current.get('ema20') is not None:
+                    print(f"      EMA20: ${lt_current.get('ema20', 0):.2f}")
+                if lt_current.get('ema50') is not None:
+                    print(f"      EMA50: ${lt_current.get('ema50', 0):.2f}")
+                if lt_current.get('rsi14') is not None:
+                    print(f"      RSI(14): {lt_current.get('rsi14', 0):.2f}")
+                if lt_current.get('macd') is not None:
+                    print(f"      MACD: {lt_current.get('macd', 0):.4f}")
+                if lt_current.get('atr3') is not None:
+                    print(f"      ATR(3): ${lt_current.get('atr3', 0):.2f}")
+                if lt_current.get('atr14') is not None:
+                    print(f"      ATR(14): ${lt_current.get('atr14', 0):.2f}")
+            
+            # Price and volume data
+            prices = intraday.get('prices', [])
+            volumes = intraday.get('volumes', [])
+            if prices and volumes:
+                print(f"\n   📉 价格和成交量统计 (最近 {len(prices)} 根K线):")
+                print(f"      价格范围: ${min(prices):.2f} - ${max(prices):.2f}")
+                print(f"      平均价格: ${sum(prices)/len(prices):.2f}")
+                print(f"      平均成交量: {sum(volumes)/len(volumes):.2f}")
+        
+        print(f"\n{'='*100}\n")
 

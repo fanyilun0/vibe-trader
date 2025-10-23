@@ -10,6 +10,7 @@ from datetime import datetime
 
 from config import Config
 from aster_client import AsterClient
+from mock_aster_client import MockAsterClient
 from data_aggregator import DataAggregator
 from signal_generator import SignalGenerator
 from execution_engine import ExecutionEngine
@@ -37,7 +38,13 @@ class VibeTrader:
         # Initialize components
         print("🤖 Initializing Vibe Trader...")
         
-        self.aster_client = AsterClient()
+        # 选择使用真实 API 还是 Mock API
+        if Config.USE_MOCK_API:
+            print("⚠️  使用模拟 API 模式 (Mock Mode)")
+            self.aster_client = MockAsterClient()
+        else:
+            self.aster_client = AsterClient()
+        
         self.data_aggregator = DataAggregator(self.aster_client)
         self.signal_generator = SignalGenerator()
         self.execution_engine = ExecutionEngine(self.aster_client, paper_trading)
@@ -79,6 +86,9 @@ class VibeTrader:
                     continue
                 
                 print(f"✅ Fetched data for {len(market_data['coins_data'])} symbols")
+                
+                # Print detailed market data
+                self.data_aggregator.print_market_data(market_data)
                 
                 # Step 2: Signal Generation
                 print("\n🧠 Step 2: Generating trading signal with DeepSeek...")

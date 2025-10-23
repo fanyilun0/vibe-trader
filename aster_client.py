@@ -36,38 +36,38 @@ class AsterClient:
         self.base_url = base_url or Config.ASTER_BASE_URL
         self.session = requests.Session()
     
-    def _sign_request(self, method: str, path: str, body: str = "") -> Dict[str, str]:
+    def _sign_request(self, method: str, path: str, params: str = "") -> Dict[str, str]:
         """
-        Generate signature for signed API requests.
+        Generate signature for signed API requests (Binance-style).
         
         Args:
             method: HTTP method (GET, POST, DELETE)
             path: API endpoint path
-            body: Request body as JSON string
+            params: Query string parameters
             
         Returns:
             Headers dict with signature
         """
         timestamp = str(int(time.time() * 1000))
-        prehash_string = f"{timestamp}{method.upper()}{path}{body}"
         
+        # Build query string with timestamp
+        query_string = f"timestamp={timestamp}"
+        if params:
+            query_string = f"{params}&{query_string}"
+        
+        # Sign the query string
         signature = hmac.new(
             self.api_secret.encode('utf-8'),
-            prehash_string.encode('utf-8'),
+            query_string.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
         
         headers = {
-            'API-KEY': self.api_key,
-            'API-SIGN': signature,
-            'API-TIMESTAMP': timestamp,
-            'Content-Type': 'application/json'
+            'X-MBX-APIKEY': self.api_key,
+            'Content-Type': 'application/x-www-form-urlencoded'
         }
         
-        if self.passphrase:
-            headers['API-PASSPHRASE'] = self.passphrase
-        
-        return headers
+        return headers, f"{query_string}&signature={signature}"
     
     def _request(
         self,
@@ -92,13 +92,22 @@ class AsterClient:
         """
         url = f"{self.base_url}{path}"
         
-        body = ""
-        if data:
-            body = json.dumps(data)
-        
         headers = {}
+        query_string = ""
+        
         if signed:
-            headers = self._sign_request(method, path, body)
+            # Build params string
+            if params:
+                param_str = "&".join([f"{k}={v}" for k, v in params.items()])
+            else:
+                param_str = ""
+            
+            if data:
+                data_str = "&".join([f"{k}={v}" for k, v in data.items()])
+                param_str = f"{param_str}&{data_str}" if param_str else data_str
+            
+            headers, query_string = self._sign_request(method, path, param_str)
+            url = f"{url}?{query_string}"
         else:
             headers = {'Content-Type': 'application/json'}
         
@@ -107,8 +116,7 @@ class AsterClient:
                 method=method,
                 url=url,
                 headers=headers,
-                params=params,
-                data=body if data else None,
+                params=None if signed else params,
                 timeout=10
             )
             response.raise_for_status()
@@ -120,16 +128,16 @@ class AsterClient:
     
     def get_all_markets(self) -> List[Dict]:
         """Get all available markets/contracts."""
-        return self._request("GET", "/api/v3/contracts")
+        return self._request("GET", "/fapi/v1/exchangeInfo")
     
     def get_ticker(self, symbol: str) -> Dict:
         """
         Get ticker information for a symbol.
         
         Args:
-            symbol: Trading pair symbol (e.g., "BTC-PERP")
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
         """
-        return self._request("GET", "/api/v3/ticker", params={"symbol": symbol})
+        return self._request("GET", "/fapi/v1/ticker/24hr", params={"symbol": symbol})
     
     def get_order_book(self, symbol: str, limit: int = 20) -> Dict:
         """
@@ -139,7 +147,7 @@ class AsterClient:
             symbol: Trading pair symbol
             limit: Number of price levels to return
         """
-        return self._request("GET", "/api/v3/depth", params={"symbol": symbol, "limit": limit})
+        return self._request("GET", "/fapi/v1/depth", params={"symbol": symbol, "limit": limit})
     
     def get_klines(
         self,
@@ -169,7 +177,7 @@ class AsterClient:
         if end_time:
             params["endTime"] = end_time
         
-        return self._request("GET", "/api/v3/klines", params=params)
+        return self._request("GET", "/fapi/v1/klines", params=params)
     
     def get_funding_rate(self, symbol: str) -> Dict:
         """
@@ -178,7 +186,7 @@ class AsterClient:
         Args:
             symbol: Trading pair symbol
         """
-        return self._request("GET", "/api/v3/fundingRate", params={"symbol": symbol})
+        return self._request("GET", "/fapi/v1/fundingRate", params={"symbol": symbol})
     
     # ========== Signed/Private Endpoints ==========
     
@@ -187,11 +195,10 @@ class AsterClient:
         symbol: str,
         side: str,
         order_type: str,
-        size: float,
+        quantity: float,
         price: Optional[float] = None,
-        leverage: Optional[int] = None,
-        stop_loss: Optional[float] = None,
-        take_profit: Optional[float] = None
+        time_in_force: str = "GTC",
+        position_side: str = "BOTH"
     ) -> Dict:
         """
         Place a new order.
@@ -200,40 +207,41 @@ class AsterClient:
             symbol: Trading pair symbol
             side: "BUY" or "SELL"
             order_type: "MARKET" or "LIMIT"
-            size: Order size/quantity
+            quantity: Order quantity
             price: Order price (required for LIMIT orders)
-            leverage: Leverage multiplier
-            stop_loss: Stop loss price
-            take_profit: Take profit price
+            time_in_force: Time in force (GTC, IOC, FOK)
+            position_side: Position side (BOTH, LONG, SHORT)
         """
         data = {
             "symbol": symbol,
             "side": side.upper(),
             "type": order_type.upper(),
-            "size": size
+            "quantity": quantity,
+            "positionSide": position_side
         }
         
         if price is not None:
             data["price"] = price
-        if leverage is not None:
-            data["leverage"] = leverage
-        if stop_loss is not None:
-            data["stopLoss"] = stop_loss
-        if take_profit is not None:
-            data["takeProfit"] = take_profit
+            data["timeInForce"] = time_in_force
         
-        return self._request("POST", "/api/v3/orders", data=data, signed=True)
+        return self._request("POST", "/fapi/v1/order", data=data, signed=True)
     
-    def cancel_order(self, order_id: str, symbol: str) -> Dict:
+    def cancel_order(self, symbol: str, order_id: Optional[int] = None, orig_client_order_id: Optional[str] = None) -> Dict:
         """
         Cancel an open order.
         
         Args:
-            order_id: Order ID to cancel
             symbol: Trading pair symbol
+            order_id: Order ID to cancel
+            orig_client_order_id: Client order ID to cancel
         """
-        path = f"/api/v3/orders/{order_id}"
-        return self._request("DELETE", path, params={"symbol": symbol}, signed=True)
+        params = {"symbol": symbol}
+        if order_id:
+            params["orderId"] = order_id
+        if orig_client_order_id:
+            params["origClientOrderId"] = orig_client_order_id
+        
+        return self._request("DELETE", "/fapi/v1/order", params=params, signed=True)
     
     def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict]:
         """
@@ -246,11 +254,15 @@ class AsterClient:
         if symbol:
             params["symbol"] = symbol
         
-        return self._request("GET", "/api/v3/openOrders", params=params, signed=True)
+        return self._request("GET", "/fapi/v1/openOrders", params=params, signed=True)
     
-    def get_account_balances(self) -> Dict:
+    def get_account_balances(self) -> List[Dict]:
         """Get account balance information."""
-        return self._request("GET", "/api/v3/accounts", signed=True)
+        return self._request("GET", "/fapi/v2/balance", signed=True)
+    
+    def get_account_info(self) -> Dict:
+        """Get account information including positions."""
+        return self._request("GET", "/fapi/v2/account", signed=True)
     
     def get_positions(self, symbol: Optional[str] = None) -> List[Dict]:
         """
@@ -263,7 +275,7 @@ class AsterClient:
         if symbol:
             params["symbol"] = symbol
         
-        return self._request("GET", "/api/v3/positions", params=params, signed=True)
+        return self._request("GET", "/fapi/v2/positionRisk", params=params, signed=True)
     
     def set_leverage(self, symbol: str, leverage: int) -> Dict:
         """
@@ -277,7 +289,7 @@ class AsterClient:
             "symbol": symbol,
             "leverage": leverage
         }
-        return self._request("POST", "/api/v3/leverage", data=data, signed=True)
+        return self._request("POST", "/fapi/v1/leverage", data=data, signed=True)
     
     def set_margin_type(self, symbol: str, margin_type: str) -> Dict:
         """
@@ -291,5 +303,5 @@ class AsterClient:
             "symbol": symbol,
             "marginType": margin_type.upper()
         }
-        return self._request("POST", "/api/v3/marginType", data=data, signed=True)
+        return self._request("POST", "/fapi/v1/marginType", data=data, signed=True)
 
