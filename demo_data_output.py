@@ -3,7 +3,7 @@
 展示一次完整的市场数据获取和美化输出
 """
 from config import Config
-from mock_aster_client import MockAsterClient
+from aster_client import AsterClient
 from data_aggregator import DataAggregator
 
 
@@ -12,10 +12,10 @@ def main():
     print("\n" + "="*100)
     print("🎬 Vibe Trader - 市场数据获取演示")
     print("="*100)
-    print("\n使用 Mock API 进行演示...")
+    print("\n使用 Aster DEX API 获取真实数据...")
     
-    # 使用 Mock API
-    client = MockAsterClient()
+    # 使用 Aster DEX API
+    client = AsterClient()
     aggregator = DataAggregator(client)
     
     print("\n正在获取市场数据...")

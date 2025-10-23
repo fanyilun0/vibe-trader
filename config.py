@@ -26,6 +26,9 @@ class Config:
     ASTER_BASE_URL: str = os.getenv("ASTER_BASE_URL", "https://fapi.asterdex.com")
     
     # Trading Configuration
+    # ⚠️ 重要：必须使用 BTCUSDT 格式，不是 BTC-PERP！
+    # 正确: BTCUSDT, ETHUSDT, SOLUSDT
+    # 错误: BTC-PERP, BTC-USDT, BTCUSD
     TRADING_SYMBOLS: List[str] = os.getenv("TRADING_SYMBOLS", "BTCUSDT,ETHUSDT").split(",")
     DEFAULT_LEVERAGE: int = int(os.getenv("DEFAULT_LEVERAGE", "5"))
     MAX_LEVERAGE: int = int(os.getenv("MAX_LEVERAGE", "10"))
@@ -39,7 +42,6 @@ class Config:
     # Bot Configuration
     LOOP_INTERVAL_SECONDS: int = int(os.getenv("LOOP_INTERVAL_SECONDS", "300"))
     PAPER_TRADING_MODE: bool = os.getenv("PAPER_TRADING_MODE", "true").lower() == "true"
-    USE_MOCK_API: bool = os.getenv("USE_MOCK_API", "false").lower() == "true"
     ENABLE_STOP_LOSS: bool = os.getenv("ENABLE_STOP_LOSS", "true").lower() == "true"
     ENABLE_TAKE_PROFIT: bool = os.getenv("ENABLE_TAKE_PROFIT", "true").lower() == "true"
     

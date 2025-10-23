@@ -27,15 +27,7 @@ python --version  # 应该是 Python 3.8+
 
 ## API 配置
 
-### 方式 1: 使用 Mock API（无需真实 API Key，适合测试）
-
-在 `.env` 文件中设置：
-```bash
-USE_MOCK_API=true
-TRADING_SYMBOLS=BTCUSDT,ETHUSDT
-```
-
-### 方式 2: 使用真实 Aster API
+### 获取和配置 Aster API
 
 1. 获取 API Key：
    - 访问 https://app.asterdex.com
@@ -55,7 +47,6 @@ DEFAULT_LEVERAGE=5
 
 # 机器人配置
 PAPER_TRADING_MODE=true
-USE_MOCK_API=false  # 使用真实 API
 LOOP_INTERVAL_SECONDS=300
 
 # DeepSeek API（用于信号生成）
@@ -85,10 +76,7 @@ uv run demo_data_output.py
 测试所有 API 端点：
 
 ```bash
-# 使用 Mock API 测试
-USE_MOCK_API=true uv run test_data_fetch.py
-
-# 使用真实 API 测试
+# 测试真实 API
 uv run test_data_fetch.py
 ```
 
@@ -284,17 +272,9 @@ LOOP_INTERVAL_SECONDS=300  # 5分钟
 uv run demo_data_output.py
 ```
 
-或者使用 Mock API 模式测试：
-```bash
-USE_MOCK_API=true uv run main.py
-```
-
 ### Q6: 没有 API Key 可以测试吗？
 
-**A**: 可以！使用 Mock API 模式：
-```bash
-USE_MOCK_API=true uv run demo_data_output.py
-```
+**A**: 需要 API Key 才能获取真实的交易数据。请访问 https://app.asterdex.com 注册并获取 API Key。
 
 ## 📚 更多文档
 

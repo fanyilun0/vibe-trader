@@ -3,6 +3,9 @@ Signal Generation Core
 Uses DeepSeek LLM to analyze market data and generate trading signals.
 """
 import json
+import os
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional, Any
 from openai import OpenAI
 from config import Config
@@ -11,21 +14,29 @@ from config import Config
 class SignalGenerator:
     """Generates trading signals using DeepSeek LLM."""
     
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, save_logs: bool = True):
         """
         Initialize the signal generator.
         
         Args:
             api_key: DeepSeek API key (defaults to config)
             model: DeepSeek model name (defaults to config)
+            save_logs: Whether to save prompts and responses to files (default: True)
         """
         self.api_key = api_key or Config.DEEPSEEK_API_KEY
         self.model = model or Config.DEEPSEEK_MODEL
+        self.save_logs = save_logs
         
         self.client = OpenAI(
             api_key=self.api_key,
             base_url=Config.DEEPSEEK_BASE_URL
         )
+        
+        # Create logs directory if saving is enabled
+        if self.save_logs:
+            self.logs_dir = Path("deepseek_logs")
+            self.logs_dir.mkdir(exist_ok=True)
+            print(f"📁 DeepSeek 日志将保存到: {self.logs_dir.absolute()}")
     
     def get_signal(self, market_data: Dict) -> Dict[str, Any]:
         """
@@ -40,14 +51,23 @@ class SignalGenerator:
         # Construct the prompt
         prompt = self._construct_prompt(market_data)
         
+        # Generate timestamp for this request
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Save prompt if logging is enabled
+        if self.save_logs:
+            self._save_prompt(prompt, timestamp)
+        
         # Query DeepSeek
         try:
+            system_message = "You are an expert quantitative analyst specializing in high-frequency trading of cryptocurrency perpetual futures. Your task is to analyze market data and provide precise, actionable trading signals."
+            
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an expert quantitative analyst specializing in high-frequency trading of cryptocurrency perpetual futures. Your task is to analyze market data and provide precise, actionable trading signals."
+                        "content": system_message
                     },
                     {
                         "role": "user",
@@ -60,13 +80,26 @@ class SignalGenerator:
             # Parse the response
             response_text = response.choices[0].message.content
             
+            # Save response if logging is enabled
+            if self.save_logs:
+                self._save_response(response_text, response, timestamp)
+            
             # Extract JSON from response
             signal = self._parse_response(response_text)
+            
+            # Save parsed signal if logging is enabled
+            if self.save_logs:
+                self._save_signal(signal, timestamp)
             
             return signal
             
         except Exception as e:
             print(f"Error calling DeepSeek API: {e}")
+            
+            # Save error if logging is enabled
+            if self.save_logs:
+                self._save_error(str(e), timestamp)
+            
             # Return a HOLD signal on error
             return {
                 'action': 'HOLD',
@@ -231,7 +264,7 @@ You must provide your analysis step-by-step, then output ONLY a JSON object in t
 
 {{
   "action": "LONG" | "SHORT" | "HOLD" | "CLOSE",
-  "symbol": "BTC-PERP" | "ETH-PERP" | "SOL-PERP" | null,
+  "symbol": "BTCUSDT" | "ETHUSDT" | "SOLUSDT" | null,
   "reasoning": "Your detailed step-by-step analysis explaining the decision",
   "entry_price": <expected entry price as float, or null>,
   "stop_loss": <stop loss price as float, or null>,
@@ -309,4 +342,117 @@ IMPORTANT:
                 'confidence': 0.0,
                 'leverage': 1
             }
+    
+    def _save_prompt(self, prompt: str, timestamp: str):
+        """
+        保存提示词到本地文件。
+        
+        Args:
+            prompt: 提示词内容
+            timestamp: 时间戳字符串
+        """
+        try:
+            filename = self.logs_dir / f"prompt_{timestamp}.txt"
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("="*100 + "\n")
+                f.write(f"DeepSeek Prompt - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*100 + "\n\n")
+                f.write(prompt)
+                f.write("\n\n" + "="*100 + "\n")
+            print(f"✅ 提示词已保存: {filename}")
+        except Exception as e:
+            print(f"❌ 保存提示词失败: {e}")
+    
+    def _save_response(self, response_text: str, response_obj: Any, timestamp: str):
+        """
+        保存 DeepSeek 响应到本地文件。
+        
+        Args:
+            response_text: 响应文本内容
+            response_obj: 完整的响应对象
+            timestamp: 时间戳字符串
+        """
+        try:
+            filename = self.logs_dir / f"response_{timestamp}.txt"
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("="*100 + "\n")
+                f.write(f"DeepSeek Response - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*100 + "\n\n")
+                
+                # 响应元数据
+                f.write("Response Metadata:\n")
+                f.write(f"  Model: {response_obj.model}\n")
+                f.write(f"  ID: {response_obj.id}\n")
+                if hasattr(response_obj, 'usage'):
+                    f.write(f"  Tokens - Prompt: {response_obj.usage.prompt_tokens}, ")
+                    f.write(f"Completion: {response_obj.usage.completion_tokens}, ")
+                    f.write(f"Total: {response_obj.usage.total_tokens}\n")
+                f.write("\n" + "-"*100 + "\n\n")
+                
+                # 响应内容
+                f.write("Response Content:\n\n")
+                f.write(response_text)
+                f.write("\n\n" + "="*100 + "\n")
+            print(f"✅ 响应已保存: {filename}")
+        except Exception as e:
+            print(f"❌ 保存响应失败: {e}")
+    
+    def _save_signal(self, signal: Dict[str, Any], timestamp: str):
+        """
+        保存解析后的交易信号到本地文件。
+        
+        Args:
+            signal: 交易信号字典
+            timestamp: 时间戳字符串
+        """
+        try:
+            filename = self.logs_dir / f"signal_{timestamp}.json"
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(signal, f, indent=2, ensure_ascii=False)
+            print(f"✅ 交易信号已保存: {filename}")
+            
+            # 同时保存一个可读的文本版本
+            txt_filename = self.logs_dir / f"signal_{timestamp}.txt"
+            with open(txt_filename, 'w', encoding='utf-8') as f:
+                f.write("="*100 + "\n")
+                f.write(f"Trading Signal - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*100 + "\n\n")
+                
+                f.write(f"🎯 Action: {signal.get('action', 'N/A')}\n")
+                f.write(f"💰 Symbol: {signal.get('symbol', 'N/A')}\n")
+                f.write(f"📊 Confidence: {signal.get('confidence', 0):.2%}\n")
+                f.write(f"⚡ Leverage: {signal.get('leverage', 1)}x\n\n")
+                
+                if signal.get('entry_price'):
+                    f.write(f"📈 Entry Price: ${signal.get('entry_price', 0):.2f}\n")
+                if signal.get('stop_loss'):
+                    f.write(f"🛑 Stop Loss: ${signal.get('stop_loss', 0):.2f}\n")
+                if signal.get('take_profit'):
+                    f.write(f"🎯 Take Profit: ${signal.get('take_profit', 0):.2f}\n")
+                
+                f.write(f"\n💡 Reasoning:\n{'-'*100}\n")
+                f.write(signal.get('reasoning', 'No reasoning provided'))
+                f.write("\n\n" + "="*100 + "\n")
+        except Exception as e:
+            print(f"❌ 保存交易信号失败: {e}")
+    
+    def _save_error(self, error_message: str, timestamp: str):
+        """
+        保存错误信息到本地文件。
+        
+        Args:
+            error_message: 错误消息
+            timestamp: 时间戳字符串
+        """
+        try:
+            filename = self.logs_dir / f"error_{timestamp}.txt"
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("="*100 + "\n")
+                f.write(f"DeepSeek Error - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*100 + "\n\n")
+                f.write(f"Error: {error_message}\n")
+                f.write("\n" + "="*100 + "\n")
+            print(f"❌ 错误已记录: {filename}")
+        except Exception as e:
+            print(f"❌ 保存错误日志失败: {e}")
 

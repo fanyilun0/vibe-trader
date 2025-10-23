@@ -73,24 +73,13 @@ DEFAULT_LEVERAGE=5
 
 # Bot Configuration
 PAPER_TRADING_MODE=true
-USE_MOCK_API=false  # 设置为 false 使用真实 API
 LOOP_INTERVAL_SECONDS=300
 ```
 
 ### 3. 测试 API 连接
 
-#### 方式 1: 使用 Mock API（不需要真实 API Key）
-
-```bash
-# 使用模拟数据测试
-USE_MOCK_API=true uv run test_data_fetch.py
-```
-
-#### 方式 2: 使用真实 API
-
 ```bash
 # 确保 .env 文件中设置了正确的 API Key 和 Secret
-# 且 USE_MOCK_API=false
 uv run test_data_fetch.py
 ```
 
@@ -246,7 +235,7 @@ uv run main.py --live
 
 **解决方案**:
 1. 检查网络连接
-2. 使用 Mock API 模式测试代码逻辑：`USE_MOCK_API=true uv run test_data_fetch.py`
+2. 检查交易对符号格式是否正确（应使用 BTCUSDT 格式）
 3. 查看 Aster API 状态页面，确认服务正常
 
 ## 📚 相关资源

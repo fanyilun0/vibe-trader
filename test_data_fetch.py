@@ -5,7 +5,6 @@ Test script for verifying Aster API data fetching
 import sys
 from config import Config
 from aster_client import AsterClient
-from mock_aster_client import MockAsterClient
 from data_aggregator import DataAggregator
 
 
@@ -15,22 +14,15 @@ def test_api_connection():
     print("🧪 测试 Aster API 连接和数据获取")
     print("="*100)
     
-    # 决定使用真实 API 还是 Mock API
-    use_mock = Config.USE_MOCK_API
-    
-    if use_mock:
-        print("\n⚠️  使用 Mock API 模式进行测试")
-        client = MockAsterClient()
-    else:
-        print("\n✅ 使用真实 Aster API 进行测试")
-        try:
-            Config.validate()
-            client = AsterClient()
-        except ValueError as e:
-            print(f"\n❌ 配置错误: {e}")
-            print("提示: 请检查 .env 文件，确保设置了 ASTER_API_KEY 和 ASTER_API_SECRET")
-            print("或者设置 USE_MOCK_API=true 来使用模拟数据测试")
-            sys.exit(1)
+    # 使用真实 Aster DEX API
+    print("\n✅ 使用 Aster DEX API 进行测试")
+    try:
+        Config.validate()
+        client = AsterClient()
+    except ValueError as e:
+        print(f"\n❌ 配置错误: {e}")
+        print("提示: 请检查 .env 文件，确保设置了 ASTER_API_KEY 和 ASTER_API_SECRET")
+        sys.exit(1)
     
     print(f"\n📊 测试交易对: {', '.join(Config.TRADING_SYMBOLS)}")
     print("\n" + "-"*100)
@@ -73,24 +65,23 @@ def test_api_connection():
             print(f"         ❌ 失败: {e}")
     
     # 测试账户端点（需要认证）
-    if not use_mock:
-        print("\n2️⃣  测试需要认证的账户端点...")
-        
-        try:
-            print(f"      ├─ 获取账户信息...")
-            account = client.get_account_info()
-            print(f"      │  ✅ 账户总余额: {account.get('totalWalletBalance', 'N/A')} USDT")
-            print(f"      │  ✅ 可用余额: {account.get('availableBalance', 'N/A')} USDT")
-        except Exception as e:
-            print(f"      │  ❌ 失败: {e}")
-            print(f"      │  提示: 如果是认证失败，请检查 API Key 和 Secret 是否正确")
-        
-        try:
-            print(f"      └─ 获取持仓信息...")
-            positions = client.get_positions()
-            print(f"         ✅ 当前持仓数: {len([p for p in positions if float(p.get('positionAmt', 0)) != 0])}")
-        except Exception as e:
-            print(f"         ❌ 失败: {e}")
+    print("\n2️⃣  测试需要认证的账户端点...")
+    
+    try:
+        print(f"      ├─ 获取账户信息...")
+        account = client.get_account_info()
+        print(f"      │  ✅ 账户总余额: {account.get('totalWalletBalance', 'N/A')} USDT")
+        print(f"      │  ✅ 可用余额: {account.get('availableBalance', 'N/A')} USDT")
+    except Exception as e:
+        print(f"      │  ❌ 失败: {e}")
+        print(f"      │  提示: 如果是认证失败，请检查 API Key 和 Secret 是否正确")
+    
+    try:
+        print(f"      └─ 获取持仓信息...")
+        positions = client.get_positions()
+        print(f"         ✅ 当前持仓数: {len([p for p in positions if float(p.get('positionAmt', 0)) != 0])}")
+    except Exception as e:
+        print(f"         ❌ 失败: {e}")
     
     # 测试完整的数据聚合器
     print("\n" + "-"*100)

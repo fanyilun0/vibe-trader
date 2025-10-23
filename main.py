@@ -10,7 +10,6 @@ from datetime import datetime
 
 from config import Config
 from aster_client import AsterClient
-from mock_aster_client import MockAsterClient
 from data_aggregator import DataAggregator
 from signal_generator import SignalGenerator
 from execution_engine import ExecutionEngine
@@ -38,12 +37,8 @@ class VibeTrader:
         # Initialize components
         print("🤖 Initializing Vibe Trader...")
         
-        # 选择使用真实 API 还是 Mock API
-        if Config.USE_MOCK_API:
-            print("⚠️  使用模拟 API 模式 (Mock Mode)")
-            self.aster_client = MockAsterClient()
-        else:
-            self.aster_client = AsterClient()
+        # 使用 Aster DEX API 获取真实数据
+        self.aster_client = AsterClient()
         
         self.data_aggregator = DataAggregator(self.aster_client)
         self.signal_generator = SignalGenerator()
