@@ -193,16 +193,13 @@ class RiskManager:
         return metrics
 
 
-def create_risk_manager(config: Dict[str, Any]) -> RiskManager:
+def create_risk_manager() -> RiskManager:
     """
     根据配置创建风险管理器
     
-    Args:
-        config: 完整配置字典
-        
     Returns:
         RiskManager实例
     """
-    risk_config = config.get('risk_management', {})
-    return RiskManager(risk_config)
+    from config import RiskManagementConfig
+    return RiskManager(RiskManagementConfig.to_dict())
 

@@ -271,29 +271,21 @@ class BinanceDataIngestion:
         return account_data
 
 
-def create_binance_client(config: Dict[str, Any]) -> BinanceDataIngestion:
+def create_binance_client() -> BinanceDataIngestion:
     """
     根据配置创建币安数据摄取客户端
     
-    Args:
-        config: 配置字典
-        
     Returns:
         BinanceDataIngestion 实例
     """
-    binance_config = config.get('binance', {})
+    from config import BinanceConfig
     
-    # 从环境变量获取API密钥
-    api_key_env = binance_config.get('api_key_env', 'BINANCE_API_KEY')
-    api_secret_env = binance_config.get('api_secret_env', 'BINANCE_API_SECRET')
+    if not BinanceConfig.validate():
+        raise ValueError("币安 API 密钥未正确配置,请检查 .env 文件")
     
-    api_key = os.getenv(api_key_env)
-    api_secret = os.getenv(api_secret_env)
-    
-    if not api_key or not api_secret:
-        raise ValueError(f"未找到币安API密钥,请设置环境变量 {api_key_env} 和 {api_secret_env}")
-    
-    testnet = binance_config.get('testnet', False)
-    
-    return BinanceDataIngestion(api_key, api_secret, testnet)
+    return BinanceDataIngestion(
+        BinanceConfig.API_KEY,
+        BinanceConfig.API_SECRET,
+        BinanceConfig.TESTNET
+    )
 

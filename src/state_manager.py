@@ -171,19 +171,13 @@ class StateManager:
         }
 
 
-def create_state_manager(config: Dict[str, Any]) -> StateManager:
+def create_state_manager() -> StateManager:
     """
     根据配置创建状态管理器
     
-    Args:
-        config: 配置字典
-        
     Returns:
         StateManager实例
     """
-    state_config = config.get('state', {})
-    state_file = state_config.get('state_file', 'data/state.json')
-    backup_enabled = state_config.get('backup_enabled', True)
-    
-    return StateManager(state_file, backup_enabled)
+    from config import StateConfig
+    return StateManager(StateConfig.STATE_FILE, StateConfig.BACKUP_ENABLED)
 

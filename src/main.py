@@ -11,11 +11,17 @@ Vibe Trader 主程序
 import os
 import sys
 import time
-import yaml
 import logging
 from typing import Dict, Any
 from datetime import datetime
-from dotenv import load_dotenv
+from pathlib import Path
+
+# 添加项目根目录到 Python 路径
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+# 导入配置 (会自动加载环境变量)
+from config import Config
 
 # 导入各模块
 from src.data_ingestion import create_binance_client
@@ -26,17 +32,16 @@ from src.risk_management import create_risk_manager
 from src.state_manager import create_state_manager
 
 # 配置日志
-def setup_logging(config: Dict[str, Any]):
+def setup_logging():
     """设置日志系统"""
-    log_config = config.get('logging', {})
-    log_level = log_config.get('level', 'INFO')
-    log_file = log_config.get('log_file', 'logs/vibe_trader.log')
+    log_level = Config.logging.LEVEL
+    log_file = Config.logging.LOG_FILE
     
     # 确保日志目录存在
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
     
     # 配置日志格式
-    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    log_format = Config.logging.FORMAT
     
     # 创建根日志记录器
     logging.basicConfig(
@@ -59,60 +64,48 @@ def setup_logging(config: Dict[str, Any]):
 class VibeTrader:
     """Vibe Trader 主类"""
     
-    def __init__(self, config_path: str = 'config.yaml'):
-        """
-        初始化 Vibe Trader
+    def __init__(self):
+        """初始化 Vibe Trader"""
         
-        Args:
-            config_path: 配置文件路径
-        """
-        # 加载环境变量
-        load_dotenv()
-        
-        # 加载配置
-        self.config = self._load_config(config_path)
+        # 验证配置
+        is_valid, errors = Config.validate_all()
+        if not is_valid:
+            raise ValueError(f"配置验证失败:\n  - " + "\n  - ".join(errors))
         
         # 设置日志
-        self.logger = setup_logging(self.config)
+        self.logger = setup_logging()
+        
+        # 打印配置摘要
+        Config.print_summary()
         
         # 初始化各模块
         self.logger.info("初始化系统模块...")
         
         # 状态管理器
-        self.state_manager = create_state_manager(self.config)
+        self.state_manager = create_state_manager()
         
         # 数据摄取模块
-        self.data_client = create_binance_client(self.config)
+        self.data_client = create_binance_client()
         
         # 数据处理器
         self.data_processor = create_data_processor()
         
         # AI 决策核心
-        self.ai_core = create_ai_decision_core(self.config)
+        self.ai_core = create_ai_decision_core()
         
         # 执行层
-        self.execution_client = get_execution_client(self.config, self.data_client.client)
+        self.execution_client = get_execution_client(self.data_client.client)
         
         # 风险管理器
-        self.risk_manager = create_risk_manager(self.config)
+        self.risk_manager = create_risk_manager()
         
         # 交易配置
-        self.symbols = self.config['trading']['symbols']
-        self.schedule_interval = self.config['trading']['schedule_interval']
+        self.symbols = Config.trading.SYMBOLS
+        self.schedule_interval = Config.trading.SCHEDULE_INTERVAL
         
         self.logger.info("系统初始化完成!")
         self.logger.info(f"交易对: {self.symbols}")
         self.logger.info(f"调度间隔: {self.schedule_interval} 秒")
-    
-    def _load_config(self, config_path: str) -> Dict[str, Any]:
-        """加载配置文件"""
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"配置文件不存在: {config_path}")
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        
-        return config
     
     def run_single_cycle(self):
         """
@@ -141,10 +134,10 @@ class VibeTrader:
             # 获取市场数据
             raw_market_data = self.data_client.get_all_market_data(
                 symbol=symbol,
-                short_interval=self.config['trading']['timeframes']['short_term'],
-                long_interval=self.config['trading']['timeframes']['long_term'],
-                short_limit=self.config['trading']['data_windows']['short_term_limit'],
-                long_limit=self.config['trading']['data_windows']['long_term_limit']
+                short_interval=Config.trading.SHORT_TERM_TIMEFRAME,
+                long_interval=Config.trading.LONG_TERM_TIMEFRAME,
+                short_limit=Config.trading.SHORT_TERM_LIMIT,
+                long_limit=Config.trading.LONG_TERM_LIMIT
             )
             
             # 获取账户数据
@@ -283,13 +276,12 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Vibe Trader - LLM驱动的量化交易系统')
-    parser.add_argument('--config', default='config.yaml', help='配置文件路径')
     parser.add_argument('--once', action='store_true', help='仅运行一次周期后退出')
     
     args = parser.parse_args()
     
     # 创建交易器实例
-    trader = VibeTrader(config_path=args.config)
+    trader = VibeTrader()
     
     if args.once:
         # 仅运行一次

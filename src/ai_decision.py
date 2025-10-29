@@ -299,27 +299,21 @@ Based on this data, provide your trading decision in JSON format.
         return decision
 
 
-def create_ai_decision_core(config: Dict[str, Any]) -> AIDecisionCore:
+def create_ai_decision_core() -> AIDecisionCore:
     """
     根据配置创建AI决策核心
     
-    Args:
-        config: 配置字典
-        
     Returns:
         AIDecisionCore实例
     """
-    deepseek_config = config.get('deepseek', {})
+    from config import DeepseekConfig
     
-    # 从环境变量获取API密钥
-    api_key_env = deepseek_config.get('api_key_env', 'DEEPSEEK_API_KEY')
-    api_key = os.getenv(api_key_env)
+    if not DeepseekConfig.validate():
+        raise ValueError("Deepseek API 密钥未正确配置,请检查 .env 文件")
     
-    if not api_key:
-        raise ValueError(f"未找到Deepseek API密钥,请设置环境变量 {api_key_env}")
-    
-    base_url = deepseek_config.get('base_url', 'https://api.deepseek.com')
-    model = deepseek_config.get('model', 'deepseek-reasoner')
-    
-    return AIDecisionCore(api_key, base_url, model)
+    return AIDecisionCore(
+        DeepseekConfig.API_KEY,
+        DeepseekConfig.BASE_URL,
+        DeepseekConfig.MODEL
+    )
 

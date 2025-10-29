@@ -125,37 +125,55 @@ DEEPSEEK_API_KEY=your_deepseek_api_key_here
 - 在币安账户中为 API 密钥设置 IP 白名单
 - 建议先使用测试网进行测试
 
-#### 3.2 修改配置文件
+#### 3.2 修改配置 (可选)
 
-编辑 `config.yaml` 以自定义交易参数:
+配置通过 `config.py` 文件管理。如需自定义,编辑 `config.py`:
 
-```yaml
-trading:
-  symbols:
-    - BTCUSDT
-  schedule_interval: 180  # 3分钟
+```python
+# config.py
 
-execution:
-  platform: binance
-  paper_trading: true  # 建议先使用模拟交易测试
+class TradingConfig:
+    SYMBOLS = ['BTCUSDT']
+    SCHEDULE_INTERVAL = 180  # 3分钟
 
-risk_management:
-  max_position_size_pct: 0.20  # 单笔最大仓位 20%
-  max_open_positions: 3
-  min_confidence: 0.75
+class ExecutionConfig:
+    PLATFORM = 'binance'
+    PAPER_TRADING = True  # 建议先使用模拟交易测试
+
+class RiskManagementConfig:
+    MAX_POSITION_SIZE_PCT = 0.20  # 单笔最大仓位 20%
+    MAX_OPEN_POSITIONS = 3
+    MIN_CONFIDENCE = 0.75
 ```
 
-### 4. 运行
+查看当前配置:
+```bash
+python3 config.py
+```
+
+### 4. 验证环境配置
 
 ```bash
-# 仅运行一次周期 (测试)
-python -m src.main --once
+# 运行环境检查工具
+python3 check_env.py
+```
 
-# 运行主循环 (持续交易)
-python -m src.main
+这将检查:
+- ✅ .env 文件是否存在
+- ✅ API 密钥是否正确配置
+- ✅ 依赖包是否安装
+- ✅ 配置文件是否有效
 
-# 使用自定义配置文件
-python -m src.main --config my_config.yaml
+### 5. 运行
+
+```bash
+# 推荐: 使用 run.py 启动脚本 (自动处理路径和环境变量)
+python3 run.py --once     # 仅运行一次周期 (测试)
+python3 run.py            # 运行主循环 (持续交易)
+
+# 或直接运行主程序
+python3 -m src.main --once
+python3 -m src.main
 ```
 
 ## 📊 提示词模板
@@ -208,14 +226,19 @@ python -m src.main --config my_config.yaml
 
 ```
 vibe-trader/
-├── config.yaml              # 主配置文件
+├── config.py                # 主配置模块 ⭐
+├── .env                     # 环境变量 (API 密钥)
+├── env.example              # 环境变量示例
 ├── requirements.txt         # Python 依赖
 ├── README.md               # 本文件
+├── run.py                  # 启动脚本 🚀
+├── check_env.py            # 环境检查工具 🔍
 ├── .gitignore              # Git 忽略规则
 ├── docs/                   # 文档
 │   ├── vibe-trader-arti.md # 架构蓝图
 │   ├── template.md         # 提示词模板
-│   └── template-description.md
+│   ├── template-description.md
+│   └── SETUP_GUIDE.md      # 设置指南
 ├── src/                    # 源代码
 │   ├── __init__.py
 │   ├── main.py            # 主程序入口
@@ -225,6 +248,8 @@ vibe-trader/
 │   ├── execution.py       # 执行层
 │   ├── risk_management.py # 风险管理
 │   └── state_manager.py   # 状态管理
+├── examples/               # 示例代码
+│   └── example_usage.py   # 模块使用示例
 ├── data/                  # 数据文件 (自动创建)
 │   └── state.json        # 系统状态
 └── logs/                 # 日志文件 (自动创建)
@@ -243,6 +268,29 @@ vibe-trader/
 - [Deepseek API 文档](https://api-docs.deepseek.com/zh-cn/)
 
 ## ⚙️ 高级配置
+
+### 自定义配置参数
+
+编辑 `config.py` 修改配置:
+
+```python
+# config.py
+
+class TradingConfig:
+    """交易配置"""
+    SYMBOLS = ['BTCUSDT', 'ETHUSDT']  # 添加更多交易对
+    SCHEDULE_INTERVAL = 300  # 改为5分钟
+
+class RiskManagementConfig:
+    """风险管理配置"""
+    MAX_POSITION_SIZE_PCT = 0.15  # 降低仓位到15%
+    MIN_CONFIDENCE = 0.80  # 提高置信度阈值
+```
+
+查看配置:
+```bash
+python3 config.py  # 查看配置摘要
+```
 
 ### 自定义技术指标参数
 
@@ -275,20 +323,67 @@ STATIC_INSTRUCTIONS = """
 
 ### 常见问题
 
-1. **API 连接失败**
-   - 检查网络连接
-   - 验证 API 密钥是否正确
-   - 确认 IP 是否在白名单中
+#### 1. ModuleNotFoundError: No module named 'src'
 
-2. **数据处理错误**
-   - 检查 K 线数据是否充足
-   - 验证技术指标计算是否正确
-   - 查看日志文件了解详细错误
+**原因**: 从错误的目录运行程序
 
-3. **LLM 响应格式错误**
-   - 检查 Deepseek API 配额
-   - 验证 API 密钥有效性
-   - 查看 LLM 原始响应日志
+**解决方案**:
+```bash
+# 确保在项目根目录运行
+cd /path/to/vibe-trader
+
+# 使用推荐的启动方式
+python3 run.py --once
+
+# 或确保使用 -m 参数
+python3 -m src.main --once
+```
+
+#### 2. 环境变量未加载
+
+**原因**: .env 文件不存在或格式错误
+
+**解决方案**:
+```bash
+# 1. 检查 .env 文件
+ls -la .env
+
+# 2. 如不存在,从示例创建
+cp env.example .env
+
+# 3. 编辑并填入真实 API 密钥
+nano .env
+
+# 4. 运行环境检查
+python3 check_env.py
+```
+
+#### 3. API 连接失败
+
+**解决方案**:
+```bash
+# 验证 API 密钥
+python3 check_env.py
+
+# 检查网络连接
+ping api.binance.com
+
+# 确认 IP 白名单设置 (在币安账户中)
+```
+
+#### 4. 数据处理错误
+
+**解决方案**:
+- 检查 K 线数据是否充足
+- 验证技术指标计算是否正确
+- 查看日志文件了解详细错误
+
+#### 5. LLM 响应格式错误
+
+**解决方案**:
+- 检查 Deepseek API 配额
+- 验证 API 密钥有效性
+- 查看 LLM 原始响应日志
 
 ### 查看日志
 
@@ -298,6 +393,23 @@ tail -f logs/vibe_trader.log
 
 # 搜索错误
 grep ERROR logs/vibe_trader.log
+
+# 查看最近的决策
+tail -100 logs/vibe_trader.log | grep "决策"
+```
+
+### 完整诊断
+
+```bash
+# 运行完整的环境检查
+python3 check_env.py
+
+# 这会检查:
+# - .env 文件是否存在
+# - API 密钥是否正确配置
+# - 依赖包是否安装
+# - 配置文件是否有效
+# - 目录结构是否完整
 ```
 
 ## 🤝 贡献

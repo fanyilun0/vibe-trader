@@ -319,43 +319,40 @@ class PaperTradingExecution(ExecutionInterface):
         logger.info(f"模拟交易状态已保存到: {filepath}")
 
 
-def get_execution_client(config: Dict[str, Any], binance_client=None) -> ExecutionInterface:
+def get_execution_client(binance_client=None) -> ExecutionInterface:
     """
     根据配置创建执行客户端
     
     Args:
-        config: 配置字典
         binance_client: 可选的币安客户端实例
         
     Returns:
         ExecutionInterface实现
     """
-    execution_config = config.get('execution', {})
-    platform = execution_config.get('platform', 'papertrading')
+    from config import ExecutionConfig
     
     # 检查是否强制使用模拟交易
-    if execution_config.get('paper_trading', True):
+    if ExecutionConfig.PAPER_TRADING:
         logger.warning("配置中启用了模拟交易模式")
         return PaperTradingExecution()
     
     # 根据平台创建相应客户端
+    platform = ExecutionConfig.PLATFORM
+    
     if platform == 'binance':
         if not binance_client:
             raise ValueError("Binance平台需要提供binance_client参数")
         return BinanceExecution(binance_client)
     
     elif platform == 'hype':
-        # 从环境变量获取密钥
-        import os
-        api_key = os.getenv('HYPE_API_KEY')
-        api_secret = os.getenv('HYPE_API_SECRET')
-        return HypeExecution(api_key, api_secret)
+        if not ExecutionConfig.HYPE_API_KEY or not ExecutionConfig.HYPE_API_SECRET:
+            raise ValueError("Hype API 密钥未配置")
+        return HypeExecution(ExecutionConfig.HYPE_API_KEY, ExecutionConfig.HYPE_API_SECRET)
     
     elif platform == 'aster':
-        import os
-        api_key = os.getenv('ASTER_API_KEY')
-        api_secret = os.getenv('ASTER_API_SECRET')
-        return AsterExecution(api_key, api_secret)
+        if not ExecutionConfig.ASTER_API_KEY or not ExecutionConfig.ASTER_API_SECRET:
+            raise ValueError("Aster API 密钥未配置")
+        return AsterExecution(ExecutionConfig.ASTER_API_KEY, ExecutionConfig.ASTER_API_SECRET)
     
     elif platform == 'papertrading':
         return PaperTradingExecution()
