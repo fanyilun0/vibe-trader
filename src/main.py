@@ -131,7 +131,7 @@ class VibeTrader:
             self.logger.info("\n[步骤 1/6] 数据摄取...")
             symbol = self.symbols[0]  # 目前仅支持单个交易对
             
-            # 获取市场数据
+            # 获取市场数据（只读模式：仅获取市场交易数据）
             raw_market_data = self.data_client.get_all_market_data(
                 symbol=symbol,
                 short_interval=Config.trading.SHORT_TERM_TIMEFRAME,
@@ -140,25 +140,19 @@ class VibeTrader:
                 long_limit=Config.trading.LONG_TERM_LIMIT
             )
             
-            # 获取账户数据
-            raw_account_data = self.data_client.get_account_data()
-            
-            # 设置起始余额 (仅第一次)
-            if self.state_manager.get_start_balance() == 0:
-                self.state_manager.set_start_balance(
-                    raw_account_data['total_wallet_balance']
-                )
-            
             # 步骤 2: 数据处理与特征工程
             self.logger.info("\n[步骤 2/6] 数据处理与特征工程...")
             market_features = self.data_processor.process_market_data(
                 raw_market_data, symbol
             )
             
-            account_features = self.data_processor.process_account_data(
-                raw_account_data,
-                start_balance=self.state_manager.get_start_balance()
-            )
+            # 构建简化的账户特征（仅用于提示词，不涉及实际账户）
+            account_features = {
+                'total_return_percent': 0.0,
+                'available_cash': 0.0,
+                'account_value': 0.0,
+                'list_of_position_dictionaries': []
+            }
             
             # 步骤 3: 获取全局状态
             global_state = self.state_manager.get_global_state()
@@ -197,35 +191,27 @@ class VibeTrader:
             
             self.logger.info("✅ 风险检查通过")
             
-            # 步骤 6: 执行
-            self.logger.info("\n[步骤 5/6] 执行交易指令...")
+            # 步骤 6: 执行（只读模式：仅显示建议）
+            self.logger.info("\n[步骤 5/6] 交易建议...")
             
             if decision.action == 'HOLD':
-                self.logger.info("决策为 HOLD,不执行任何操作")
+                self.logger.info("💡 建议操作: HOLD - 保持观望")
             else:
-                result = self.execution_client.execute_order(decision)
-                self.logger.info(f"执行结果: {result}")
+                self.logger.info("📝 AI 交易建议:")
+                self.logger.info(f"   操作: {decision.action} {decision.symbol}")
+                self.logger.info(f"   置信度: {decision.confidence:.2f}")
+                self.logger.info(f"   建议仓位: {decision.quantity_pct * 100 if decision.quantity_pct else 0:.1f}%")
+                self.logger.info(f"   理由: {decision.rationale}")
+                if decision.exit_plan:
+                    self.logger.info(f"   止损: {decision.exit_plan.stop_loss}")
+                    if decision.exit_plan.take_profit:
+                        self.logger.info(f"   止盈: {decision.exit_plan.take_profit}")
+                self.logger.warning("⚠️  只读模式：系统不会执行实际交易")
             
-            # 步骤 7: 记录性能指标
-            self.logger.info("\n[步骤 6/6] 记录性能指标...")
-            
-            risk_metrics = self.risk_manager.get_risk_metrics(
-                account_features['list_of_position_dictionaries'],
-                account_features['account_value']
-            )
-            
-            performance_metrics = {
-                'account_value': account_features['account_value'],
-                'total_return_pct': account_features['total_return_percent'],
-                'available_cash': account_features['available_cash'],
-                'risk_metrics': risk_metrics
-            }
-            
-            self.state_manager.record_performance(performance_metrics)
-            
-            self.logger.info(f"账户价值: ${performance_metrics['account_value']:,.2f}")
-            self.logger.info(f"总收益率: {performance_metrics['total_return_pct']:.2f}%")
-            self.logger.info(f"持仓数量: {risk_metrics['total_positions']}")
+            # 步骤 7: 记录周期信息（只读模式：跳过性能指标）
+            self.logger.info("\n[步骤 6/6] 记录周期信息...")
+            self.logger.info(f"当前市场价格: ${market_features.get('current_price', 0):,.2f}")
+            self.logger.info(f"市场趋势: EMA20={market_features.get('current_ema20', 0):.2f}, RSI={market_features.get('current_rsi_7', 0):.2f}")
             
             # 保存状态
             self.state_manager.save()

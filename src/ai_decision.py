@@ -178,6 +178,62 @@ Based on this data, provide your trading decision in JSON format.
         
         return prompt
     
+    def save_prompt_to_file(
+        self,
+        market_features: Dict[str, Any],
+        account_features: Dict[str, Any],
+        global_state: Dict[str, Any],
+        save_dir: str = "prompts"
+    ) -> str:
+        """
+        保存提示词到本地文件
+        
+        Args:
+            market_features: 市场特征
+            account_features: 账户特征
+            global_state: 全局状态
+            save_dir: 保存目录
+            
+        Returns:
+            保存的文件路径
+        """
+        # 确保目录存在
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # 生成文件名（使用时间戳）
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        invocation = global_state.get('invocation_count', 0)
+        filename = f"prompt_{timestamp}_inv{invocation}.txt"
+        filepath = os.path.join(save_dir, filename)
+        
+        # 构建完整提示词
+        market_prompt = self.build_market_prompt(market_features, account_features, global_state)
+        
+        full_prompt = f"""{'='*80}
+AI 交易决策提示词
+{'='*80}
+生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+调用次数: {invocation}
+{'='*80}
+
+[系统指令]
+{self.STATIC_INSTRUCTIONS}
+
+{'='*80}
+[市场数据]
+{'='*80}
+{market_prompt}
+
+{'='*80}
+"""
+        
+        # 保存到文件
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(full_prompt)
+        
+        logger.info(f"✅ 提示词已保存到: {filepath}")
+        return filepath
+    
     def call_llm(
         self,
         market_features: Dict[str, Any],
@@ -199,6 +255,12 @@ Based on this data, provide your trading decision in JSON format.
         Returns:
             LLM的原始响应
         """
+        # 保存提示词到本地
+        try:
+            self.save_prompt_to_file(market_features, account_features, global_state)
+        except Exception as e:
+            logger.warning(f"保存提示词失败: {e}")
+        
         # 构建双user消息结构 (优化缓存)
         messages = [
             {

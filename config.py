@@ -31,6 +31,16 @@ class BinanceConfig:
     BASE_URL = 'https://fapi.binance.com'  # U本位永续合约
     TESTNET = False  # 是否使用测试网
     
+    # 代理配置 (如果需要通过代理访问)
+    # 支持完整 URL 格式: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
+    PROXY_URL = os.getenv('BINANCE_PROXY_URL', '')
+    
+    # 是否跳过连接测试 (仅在确认代理工作且初始化测试失败时使用)
+    SKIP_CONNECTION_TEST = os.getenv('BINANCE_SKIP_CONNECTION_TEST', 'false').lower() == 'true'
+    
+    # 超时设置
+    REQUEST_TIMEOUT = int(os.getenv('BINANCE_REQUEST_TIMEOUT', '30'))
+    
     @classmethod
     def validate(cls) -> bool:
         """验证配置是否有效"""
@@ -39,6 +49,16 @@ class BinanceConfig:
         if cls.API_KEY.startswith('your_') or cls.API_SECRET.startswith('your_'):
             return False
         return True
+    
+    @classmethod
+    def get_proxy_dict(cls) -> Dict[str, str]:
+        """获取代理配置字典"""
+        if cls.PROXY_URL:
+            return {
+                'http': cls.PROXY_URL,
+                'https': cls.PROXY_URL
+            }
+        return {}
 
 
 # ============================================
