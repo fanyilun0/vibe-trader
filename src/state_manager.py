@@ -1,0 +1,189 @@
+"""
+状态管理模块
+
+负责在多次调用之间持久化和恢复系统状态
+"""
+
+import json
+import os
+from typing import Dict, Any
+from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class StateManager:
+    """状态管理器"""
+    
+    def __init__(self, state_file: str = 'data/state.json', backup_enabled: bool = True):
+        """
+        初始化状态管理器
+        
+        Args:
+            state_file: 状态文件路径
+            backup_enabled: 是否启用备份
+        """
+        self.state_file = state_file
+        self.backup_enabled = backup_enabled
+        self.state: Dict[str, Any] = self._load_or_initialize()
+        
+        logger.info(f"状态管理器初始化完成 (state_file={state_file})")
+    
+    def _load_or_initialize(self) -> Dict[str, Any]:
+        """加载或初始化状态"""
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+        
+        # 尝试加载现有状态
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, 'r') as f:
+                    state = json.load(f)
+                logger.info(f"从 {self.state_file} 加载状态")
+                return state
+            except Exception as e:
+                logger.error(f"加载状态文件失败: {e}, 将创建新状态")
+        
+        # 初始化新状态
+        return self._create_initial_state()
+    
+    def _create_initial_state(self) -> Dict[str, Any]:
+        """创建初始状态"""
+        return {
+            'start_time': datetime.now().isoformat(),
+            'invocation_count': 0,
+            'total_trades': 0,
+            'start_balance': None,  # 将在第一次运行时设置
+            'last_decision': None,
+            'performance_history': [],
+            'metadata': {
+                'version': '0.1.0',
+                'created_at': datetime.now().isoformat()
+            }
+        }
+    
+    def increment_invocation(self) -> int:
+        """
+        增加调用计数
+        
+        Returns:
+            新的调用次数
+        """
+        self.state['invocation_count'] += 1
+        return self.state['invocation_count']
+    
+    def get_invocation_count(self) -> int:
+        """获取调用次数"""
+        return self.state.get('invocation_count', 0)
+    
+    def get_minutes_trading(self) -> int:
+        """
+        计算从开始到现在的交易分钟数
+        
+        Returns:
+            交易分钟数
+        """
+        start_time_str = self.state.get('start_time')
+        if not start_time_str:
+            return 0
+        
+        start_time = datetime.fromisoformat(start_time_str)
+        elapsed = datetime.now() - start_time
+        return int(elapsed.total_seconds() / 60)
+    
+    def set_start_balance(self, balance: float):
+        """设置起始余额"""
+        if self.state.get('start_balance') is None:
+            self.state['start_balance'] = balance
+            logger.info(f"设置起始余额: ${balance:,.2f}")
+    
+    def get_start_balance(self) -> float:
+        """获取起始余额"""
+        return self.state.get('start_balance', 0.0)
+    
+    def record_decision(self, decision: Dict[str, Any]):
+        """
+        记录决策
+        
+        Args:
+            decision: 决策字典
+        """
+        self.state['last_decision'] = {
+            'timestamp': datetime.now().isoformat(),
+            'decision': decision
+        }
+        
+        if decision.get('action') in ['BUY', 'SELL', 'CLOSE_POSITION']:
+            self.state['total_trades'] = self.state.get('total_trades', 0) + 1
+    
+    def record_performance(self, metrics: Dict[str, Any]):
+        """
+        记录性能指标
+        
+        Args:
+            metrics: 性能指标字典
+        """
+        performance_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'metrics': metrics
+        }
+        
+        if 'performance_history' not in self.state:
+            self.state['performance_history'] = []
+        
+        self.state['performance_history'].append(performance_entry)
+        
+        # 只保留最近100条记录
+        if len(self.state['performance_history']) > 100:
+            self.state['performance_history'] = self.state['performance_history'][-100:]
+    
+    def save(self):
+        """保存状态到文件"""
+        try:
+            # 如果启用备份,先备份现有文件
+            if self.backup_enabled and os.path.exists(self.state_file):
+                backup_file = f"{self.state_file}.backup"
+                os.replace(self.state_file, backup_file)
+            
+            # 保存新状态
+            with open(self.state_file, 'w') as f:
+                json.dump(self.state, f, indent=2)
+            
+            logger.debug(f"状态已保存到 {self.state_file}")
+            
+        except Exception as e:
+            logger.error(f"保存状态失败: {e}")
+    
+    def get_global_state(self) -> Dict[str, Any]:
+        """
+        获取全局状态 (用于填充提示词)
+        
+        Returns:
+            全局状态字典
+        """
+        return {
+            'minutes_trading': self.get_minutes_trading(),
+            'current_timestamp': datetime.now().isoformat(),
+            'invocation_count': self.get_invocation_count(),
+            'total_trades': self.state.get('total_trades', 0)
+        }
+
+
+def create_state_manager(config: Dict[str, Any]) -> StateManager:
+    """
+    根据配置创建状态管理器
+    
+    Args:
+        config: 配置字典
+        
+    Returns:
+        StateManager实例
+    """
+    state_config = config.get('state', {})
+    state_file = state_config.get('state_file', 'data/state.json')
+    backup_enabled = state_config.get('backup_enabled', True)
+    
+    return StateManager(state_file, backup_enabled)
+

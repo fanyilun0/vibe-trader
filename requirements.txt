@@ -1,0 +1,26 @@
+# Vibe Trader 依赖包列表
+
+# 币安 API 客户端
+python-binance==1.0.19
+
+# 技术分析库
+ta==0.11.0
+pandas==2.1.4
+numpy==1.26.3
+
+# HTTP 请求
+requests==2.31.0
+
+# 数据验证
+pydantic==2.5.3
+
+# 配置管理
+PyYAML==6.0.1
+python-dotenv==1.0.0
+
+# 日志 (内置,无需安装)
+# logging
+
+# 调度 (可选,用于更高级的调度)
+# APScheduler==3.10.4
+
