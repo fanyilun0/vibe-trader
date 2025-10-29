@@ -136,44 +136,48 @@ Now analyze the market data and respond with your decision in JSON format.
         """
         symbol = market_features.get('symbol', 'UNKNOWN')
         
-        prompt = f"""It has been {global_state.get('minutes_trading', 0)} minutes since you started trading. The current time is {global_state.get('current_timestamp', 'UNKNOWN')} and you've been invoked {global_state.get('invocation_count', 0)} times.
+        prompt = f"""Trading Session Status:
+- Session Duration: {global_state.get('minutes_trading', 0)} minutes
+- Current Time: {global_state.get('current_timestamp', 'UNKNOWN')}
+- Invocation Count: {global_state.get('invocation_count', 0)}
 
-ALL OF THE PRICE OR SIGNAL DATA BELOW IS ORDERED: OLDEST → NEWEST
-Timeframes: Intraday series are at 3-minute intervals. Long-term context is at 4-hour intervals.
+IMPORTANT: ALL PRICE AND SIGNAL DATA BELOW IS ORDERED FROM OLDEST TO NEWEST
+Timeframes: Short-term data uses 3-minute intervals, long-term context uses 4-hour intervals.
 
-CURRENT MARKET STATE FOR {symbol}
+=== CURRENT MARKET STATE FOR {symbol} ===
 
-Current State:
-- Current Price: {market_features.get('current_price')}
-- Current EMA20: {market_features.get('current_ema20')}
-- Current MACD: {market_features.get('current_macd')}
-- Current RSI (7-period): {market_features.get('current_rsi_7')}
+Current Snapshot:
+- Price: {market_features.get('current_price')}
+- EMA20: {market_features.get('current_ema20')}
+- MACD: {market_features.get('current_macd')}
+- RSI (7-period): {market_features.get('current_rsi_7')}
 
-Derivatives Market Data:
-- Open Interest - Latest: {market_features.get('latest_open_interest')}, Average: {market_features.get('average_open_interest')}
+Derivatives Market Metrics:
+- Open Interest (Latest): {market_features.get('latest_open_interest')}
+- Open Interest (Average): {market_features.get('average_open_interest')}
 - Funding Rate: {market_features.get('funding_rate')}
 
-Intraday Series (3-minute, oldest → newest):
+Short-Term Time Series (3-minute intervals, oldest to newest):
 - Mid Prices: {market_features.get('mid_prices_list', [])}
-- EMA20 Indicators: {market_features.get('ema20_list', [])}
-- MACD Indicators: {market_features.get('macd_list', [])}
-- RSI Indicators (7-Period): {market_features.get('rsi_7_period_list', [])}
-- RSI Indicators (14-Period): {market_features.get('rsi_14_period_list', [])}
+- EMA20 Values: {market_features.get('ema20_list', [])}
+- MACD Values: {market_features.get('macd_list', [])}
+- RSI (7-period): {market_features.get('rsi_7_period_list', [])}
+- RSI (14-period): {market_features.get('rsi_14_period_list', [])}
 
-Long-term Context (4-hour):
-- 20-Period EMA: {market_features.get('long_term_ema20')} vs. 50-Period EMA: {market_features.get('long_term_ema50')}
-- 3-Period ATR: {market_features.get('long_term_atr3')} vs. 14-Period ATR: {market_features.get('long_term_atr14')}
-- Current Volume: {market_features.get('long_term_current_volume')} vs. Average Volume: {market_features.get('long_term_average_volume')}
-- MACD Indicators: {market_features.get('long_term_macd_list', [])}
-- RSI Indicators (14-Period): {market_features.get('long_term_rsi_14_period_list', [])}
+Long-Term Context (4-hour intervals):
+- EMA Comparison: EMA20={market_features.get('long_term_ema20')} vs EMA50={market_features.get('long_term_ema50')}
+- ATR Comparison: ATR3={market_features.get('long_term_atr3')} vs ATR14={market_features.get('long_term_atr14')}
+- Volume Analysis: Current={market_features.get('long_term_current_volume')} vs Average={market_features.get('long_term_average_volume')}
+- MACD Series: {market_features.get('long_term_macd_list', [])}
+- RSI Series (14-period): {market_features.get('long_term_rsi_14_period_list', [])}
 
-YOUR ACCOUNT INFORMATION & PERFORMANCE:
-- Current Total Return: {account_features.get('total_return_percent', 0):.2f}%
-- Available Cash: {account_features.get('available_cash', 0)}
-- Current Account Value: {account_features.get('account_value', 0)}
-- Current Live Positions: {json.dumps(account_features.get('list_of_position_dictionaries', []), indent=2)}
+=== ACCOUNT STATUS & PORTFOLIO ===
+- Total Return: {account_features.get('total_return_percent', 0):.2f}%
+- Available Balance: {account_features.get('available_cash', 0)} USDT
+- Account Value: {account_features.get('account_value', 0)} USDT
+- Open Positions: {json.dumps(account_features.get('list_of_position_dictionaries', []), indent=2)}
 
-Based on this data, provide your trading decision in JSON format.
+Based on the above market analysis and account status, provide your trading decision in the required JSON format.
 """
         
         return prompt

@@ -126,8 +126,13 @@ class TradingConfig:
 class ExecutionConfig:
     """执行平台配置"""
     
-    PLATFORM = 'binance'  # 可选: binance, hype, aster, papertrading
-    PAPER_TRADING = True  # 是否启用模拟交易模式 (⚠️ 建议先设为 True)
+    PLATFORM = 'binance'  # 可选: binance, hype, aster, papertrading, binance_mock
+    
+    # 交易执行开关
+    # ⚠️ 重要安全开关: 控制是否实际下单
+    # True: 只读模式,仅获取市场数据,不执行任何交易
+    # False: 实盘交易模式,会实际下单 (⚠️ 请谨慎使用!)
+    PAPER_TRADING = os.getenv('PAPER_TRADING', 'true').lower() == 'true'
     
     # 其他平台 API 配置
     HYPE_API_KEY = os.getenv('HYPE_API_KEY', '')

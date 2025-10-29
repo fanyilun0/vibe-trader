@@ -16,9 +16,11 @@ from typing import Dict, Any
 from datetime import datetime
 from pathlib import Path
 
-# 添加项目根目录到 Python 路径
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# 统一项目根目录路径解析 (避免不同执行路径导致的问题)
+_current_file = Path(__file__).resolve()
+_project_root = _current_file.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 # 导入配置 (会自动加载环境变量)
 from config import Config
@@ -27,7 +29,7 @@ from config import Config
 from src.data_ingestion import create_binance_client
 from src.data_processing import create_data_processor
 from src.ai_decision import create_ai_decision_core
-from src.execution import get_execution_client
+from src.execution.manager import create_execution_manager
 from src.risk_management import create_risk_manager
 from src.state_manager import create_state_manager
 
@@ -93,8 +95,8 @@ class VibeTrader:
         # AI 决策核心
         self.ai_core = create_ai_decision_core()
         
-        # 执行层
-        self.execution_client = get_execution_client(self.data_client.client)
+        # 执行管理器 (新架构)
+        self.execution_manager = create_execution_manager(self.data_client.client)
         
         # 风险管理器
         self.risk_manager = create_risk_manager()
@@ -146,12 +148,31 @@ class VibeTrader:
                 raw_market_data, symbol
             )
             
-            # 构建简化的账户特征（仅用于提示词，不涉及实际账户）
+            # 步骤 2.5: 获取账户状态 (通过执行管理器)
+            self.logger.info("\n[步骤 2.5/6] 获取账户状态...")
+            
+            # 更新持仓盈亏
+            current_price = market_features.get('current_price', 0)
+            if current_price > 0:
+                self.execution_manager.update_positions_pnl({symbol: current_price})
+            
+            # 获取完整账户状态
+            account_state = self.execution_manager.get_account_state()
+            
+            self.logger.info(f"账户余额: ${account_state['total_equity']:,.2f}")
+            self.logger.info(f"持仓数量: {account_state['position_count']}")
+            
+            # 计算总收益率
+            initial_balance = self.execution_manager.initial_balance
+            total_equity = account_state['total_equity']
+            total_return_pct = ((total_equity - initial_balance) / initial_balance * 100) if initial_balance > 0 else 0.0
+            
+            # 构建账户特征（用于AI决策提示词）
             account_features = {
-                'total_return_percent': 0.0,
-                'available_cash': 0.0,
-                'account_value': 0.0,
-                'list_of_position_dictionaries': []
+                'total_return_percent': total_return_pct,
+                'available_cash': account_state['available_balance'],
+                'account_value': total_equity,
+                'list_of_position_dictionaries': account_state['positions']
             }
             
             # 步骤 3: 获取全局状态
@@ -191,13 +212,17 @@ class VibeTrader:
             
             self.logger.info("✅ 风险检查通过")
             
-            # 步骤 6: 执行（只读模式：仅显示建议）
-            self.logger.info("\n[步骤 5/6] 交易建议...")
+            # 步骤 6: 执行交易
+            self.logger.info("\n[步骤 5/6] 执行交易...")
+            
+            # 检查是否为模拟交易模式
+            is_paper_trading = Config.execution.PAPER_TRADING or Config.execution.PLATFORM in ['binance_mock', 'papertrading']
             
             if decision.action == 'HOLD':
-                self.logger.info("💡 建议操作: HOLD - 保持观望")
+                self.logger.info("💡 决策: HOLD - 保持观望")
             else:
-                self.logger.info("📝 AI 交易建议:")
+                # 显示决策信息
+                self.logger.info("📝 AI 交易决策:")
                 self.logger.info(f"   操作: {decision.action} {decision.symbol}")
                 self.logger.info(f"   置信度: {decision.confidence:.2f}")
                 self.logger.info(f"   建议仓位: {decision.quantity_pct * 100 if decision.quantity_pct else 0:.1f}%")
@@ -206,15 +231,64 @@ class VibeTrader:
                     self.logger.info(f"   止损: {decision.exit_plan.stop_loss}")
                     if decision.exit_plan.take_profit:
                         self.logger.info(f"   止盈: {decision.exit_plan.take_profit}")
-                self.logger.warning("⚠️  只读模式：系统不会执行实际交易")
+                
+                # 执行订单 (通过执行管理器)
+                try:
+                    # 获取当前价格用于执行
+                    current_price = market_features['current_price']
+                    
+                    # 调用执行管理器
+                    execution_result = self.execution_manager.execute_decision(decision, current_price)
+                    
+                    # 显示执行结果
+                    if execution_result.get('status') == 'SUCCESS':
+                        self.logger.info(f"✅ 交易执行成功!")
+                        if is_paper_trading:
+                            self.logger.info(f"   模式: 模拟交易")
+                        
+                        # 如果是开仓,显示持仓信息
+                        if 'position' in execution_result:
+                            pos = execution_result['position']
+                            self.logger.info(f"   持仓: {pos['side']} {pos['quantity']:.4f} {pos['symbol']}")
+                            self.logger.info(f"   开仓价: ${pos['entry_price']:.2f}")
+                            self.logger.info(f"   强平价: ${pos['liquidation_price']:.2f}")
+                    elif execution_result.get('status') == 'SKIPPED':
+                        self.logger.info(f"ℹ️  {execution_result.get('message', '跳过执行')}")
+                    else:
+                        self.logger.warning(f"⚠️  执行失败: {execution_result.get('error', '未知错误')}")
+                    
+                except Exception as e:
+                    self.logger.error(f"❌ 执行交易时发生错误: {e}", exc_info=True)
             
-            # 步骤 7: 记录周期信息（只读模式：跳过性能指标）
+            # 步骤 7: 记录周期信息和账户状态
             self.logger.info("\n[步骤 6/6] 记录周期信息...")
             self.logger.info(f"当前市场价格: ${market_features.get('current_price', 0):,.2f}")
             self.logger.info(f"市场趋势: EMA20={market_features.get('current_ema20', 0):.2f}, RSI={market_features.get('current_rsi_7', 0):.2f}")
             
+            # 显示账户状态 (如果是模拟交易)
+            if is_paper_trading:
+                try:
+                    account_state = self.execution_manager.get_account_state()
+                    balance_info = account_state['balance']
+                    self.logger.info(f"\n💰 账户状态:")
+                    self.logger.info(f"   可用余额: ${balance_info.get('available_balance', 0):,.2f}")
+                    if 'total_equity' in balance_info:
+                        self.logger.info(f"   总权益: ${balance_info.get('total_equity', 0):,.2f}")
+                    if 'unrealized_pnl' in balance_info:
+                        pnl = balance_info.get('unrealized_pnl', 0)
+                        pnl_sign = "+" if pnl >= 0 else ""
+                        self.logger.info(f"   未实现盈亏: {pnl_sign}${pnl:.2f}")
+                except Exception as e:
+                    self.logger.warning(f"获取账户状态失败: {e}")
+            
             # 保存状态
             self.state_manager.save()
+            
+            # 保存执行管理器状态
+            try:
+                self.execution_manager.save_state()
+            except Exception as e:
+                self.logger.warning(f"保存执行状态失败: {e}")
             
             self.logger.info("\n" + "=" * 80)
             self.logger.info("交易周期完成")
