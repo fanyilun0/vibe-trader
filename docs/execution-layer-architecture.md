@@ -90,7 +90,8 @@
 
 **关键方法**:
 - `get_account_state()` - 获取完整账户状态
-- `update_positions_pnl(prices)` - 更新所有持仓盈亏
+- `refresh_account_state()` - 刷新账户状态缓存（在周期开始时调用）
+- `update_positions_pnl(prices)` - 更新所有持仓盈亏（Mock模式使用）
 - `execute_decision(decision, price)` - 执行交易决策
 
 ### 3. API Adapters (适配器层)
@@ -109,8 +110,11 @@
   - Maker 手续费: 0.02%
 
 #### BinanceAdapter
-- 真实币安 API 集成
-- 实盘交易执行 (⚠️ 谨慎使用)
+- 真实币安 API 集成（支持 testnet 和主网）
+- 完整的合约交易执行逻辑
+- 账户数据缓存机制（避免重复API调用）
+- 开仓、平仓、查询账户状态等完整功能
+- ⚠️ 主网模式需谨慎使用
 
 #### HypeAdapter / AsterAdapter
 - 其他平台的适配器 (存根实现)
@@ -185,11 +189,12 @@ if result['status'] == 'SUCCESS':
 
 1. **数据摄取** → 获取市场数据
 2. **数据处理** → 计算技术指标
-3. **状态查询** → `manager.get_account_state()` 获取账户信息
-4. **AI 决策** → 使用账户状态构建提示词，生成决策
-5. **风险检查** → 验证决策安全性
-6. **执行交易** → `manager.execute_decision()` 执行订单
-7. **状态保存** → `manager.save_state()` 持久化状态
+3. **状态刷新** → `manager.refresh_account_state()` 刷新账户数据缓存（仅一次API调用）
+4. **状态查询** → `manager.get_account_state()` 获取账户信息（使用缓存）
+5. **AI 决策** → 使用账户状态构建提示词，生成决策
+6. **风险检查** → 验证决策安全性
+7. **执行交易** → `manager.execute_decision()` 执行订单（自动刷新缓存）
+8. **状态保存** → `manager.save_state()` 持久化状态
 
 ## 优势
 
@@ -208,6 +213,11 @@ if result['status'] == 'SUCCESS':
 ### 4. 简化配置
 - 移除了繁琐的模拟交易参数配置
 - 使用合理的默认值，开箱即用
+
+### 5. 性能优化
+- 账户数据缓存机制，避免重复API调用
+- 在同一决策周期内复用账户数据（1秒缓存）
+- 减少API请求次数，提高响应速度
 
 ## 文件结构
 

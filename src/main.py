@@ -152,16 +152,27 @@ class VibeTrader:
             # 步骤 2.5: 获取账户状态 (通过执行管理器)
             self.logger.info("\n[步骤 2.5/6] 获取账户状态...")
             
-            # 更新持仓盈亏
-            current_price = market_features.get('current_price', 0)
-            if current_price > 0:
-                self.execution_manager.update_positions_pnl({symbol: current_price})
+            # 刷新账户状态（仅调用一次API）
+            self.execution_manager.refresh_account_state()
             
-            # 获取完整账户状态
+            # 获取完整账户状态（使用缓存数据）
             account_state = self.execution_manager.get_account_state()
             
-            self.logger.info(f"账户余额: ${account_state['total_equity']:,.2f}")
+            self.logger.info(f"账户总权益: ${account_state['total_equity']:,.2f}")
+            self.logger.info(f"可用余额: ${account_state['available_balance']:,.2f}")
             self.logger.info(f"持仓数量: {account_state['position_count']}")
+            
+            # 显示持仓详情
+            if account_state['position_count'] > 0:
+                self.logger.info("\n📦 当前持仓:")
+                for pos in account_state['positions']:
+                    pnl_sign = "+" if pos['unrealized_pnl'] >= 0 else ""
+                    self.logger.info(
+                        f"   {pos['symbol']}: {pos['side']} {pos['quantity']:.6f} @ "
+                        f"${pos['entry_price']:.2f} | 盈亏: {pnl_sign}${pos['unrealized_pnl']:.2f}"
+                    )
+            else:
+                self.logger.info("   无持仓")
             
             # 计算总收益率
             initial_balance = self.execution_manager.initial_balance
@@ -261,25 +272,31 @@ class VibeTrader:
                 except Exception as e:
                     self.logger.error(f"❌ 执行交易时发生错误: {e}", exc_info=True)
             
-            # 步骤 7: 记录周期信息和账户状态
-            self.logger.info("\n[步骤 6/6] 记录周期信息...")
+            # 步骤 7: 记录周期信息
+            self.logger.info("\n[步骤 6/6] 周期总结...")
             self.logger.info(f"当前市场价格: ${market_features.get('current_price', 0):,.2f}")
             self.logger.info(f"市场趋势: EMA20={market_features.get('current_ema20', 0):.2f}, RSI={market_features.get('current_rsi_7', 0):.2f}")
             
-            # 显示账户状态
-            try:
-                account_state = self.execution_manager.get_account_state()
-                balance_info = account_state['balance']
-                self.logger.info(f"\n💰 账户状态:")
-                self.logger.info(f"   可用余额: ${balance_info.get('available_balance', 0):,.2f}")
-                if 'total_equity' in balance_info:
-                    self.logger.info(f"   总权益: ${balance_info.get('total_equity', 0):,.2f}")
-                if 'unrealized_pnl' in balance_info:
-                    pnl = balance_info.get('unrealized_pnl', 0)
-                    pnl_sign = "+" if pnl >= 0 else ""
-                    self.logger.info(f"   未实现盈亏: {pnl_sign}${pnl:.2f}")
-            except Exception as e:
-                self.logger.warning(f"获取账户状态失败: {e}")
+            # 显示最终账户状态（如果刚执行过交易，显示更新后的状态）
+            if decision.action != 'HOLD':
+                try:
+                    # 如果执行了交易，刷新账户状态
+                    self.execution_manager.refresh_account_state()
+                    final_account_state = self.execution_manager.get_account_state()
+                    
+                    self.logger.info(f"\n💰 最终账户状态:")
+                    self.logger.info(f"   总权益: ${final_account_state['total_equity']:,.2f}")
+                    self.logger.info(f"   可用余额: ${final_account_state['available_balance']:,.2f}")
+                    if final_account_state['unrealized_pnl'] != 0:
+                        pnl = final_account_state['unrealized_pnl']
+                        pnl_sign = "+" if pnl >= 0 else ""
+                        self.logger.info(f"   未实现盈亏: {pnl_sign}${pnl:.2f}")
+                    
+                    # 显示持仓变化
+                    if final_account_state['position_count'] > 0:
+                        self.logger.info(f"   持仓数量: {final_account_state['position_count']}")
+                except Exception as e:
+                    self.logger.warning(f"获取最终账户状态失败: {e}")
             
             # 保存状态
             self.state_manager.save()

@@ -86,12 +86,25 @@ class ExecutionManager:
                 'position_count': 0
             }
     
+    def refresh_account_state(self):
+        """
+        刷新账户状态
+        
+        如果适配器支持缓存刷新，则调用刷新方法
+        用于在决策周期开始时获取最新数据
+        """
+        if hasattr(self.adapter, 'refresh_account_data'):
+            logger.debug("刷新执行层账户状态缓存")
+            self.adapter.refresh_account_data()
+    
     def update_positions_pnl(self, current_prices: Dict[str, float]):
         """
         更新所有持仓的未实现盈亏
         
         Args:
             current_prices: 当前价格字典 {symbol: price}
+            
+        注意: 对于Binance适配器，此方法不执行任何操作（API会自动更新）
         """
         positions = self.adapter.get_open_positions()
         
