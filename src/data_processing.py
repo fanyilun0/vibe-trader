@@ -237,17 +237,23 @@ class DataProcessor:
         features['long_term_rsi_14_period_list'] = long_df['rsi_14'].tolist()
         
         # 处理持仓量数据
-        features['latest_open_interest'] = float(raw_data['open_interest'].get('openInterest', 0))
+        if raw_data.get('open_interest') and isinstance(raw_data['open_interest'], dict):
+            features['latest_open_interest'] = float(raw_data['open_interest'].get('openInterest', 0))
+        else:
+            features['latest_open_interest'] = 0.0
         
         # 计算平均持仓量
-        if raw_data['open_interest_hist']:
-            oi_values = [float(item.get('sumOpenInterest', 0)) for item in raw_data['open_interest_hist']]
-            features['average_open_interest'] = float(np.mean(oi_values))
+        if raw_data.get('open_interest_hist') and isinstance(raw_data['open_interest_hist'], list) and len(raw_data['open_interest_hist']) > 0:
+            oi_values = [float(item.get('sumOpenInterest', 0)) for item in raw_data['open_interest_hist'] if isinstance(item, dict)]
+            if oi_values:
+                features['average_open_interest'] = float(np.mean(oi_values))
+            else:
+                features['average_open_interest'] = features['latest_open_interest']
         else:
             features['average_open_interest'] = features['latest_open_interest']
         
         # 处理资金费率
-        if raw_data['funding_rate']:
+        if raw_data.get('funding_rate') and isinstance(raw_data['funding_rate'], list) and len(raw_data['funding_rate']) > 0:
             features['funding_rate'] = float(raw_data['funding_rate'][0].get('fundingRate', 0))
         else:
             features['funding_rate'] = 0.0

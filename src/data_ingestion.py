@@ -10,7 +10,7 @@ import time
 import requests
 from typing import Dict, List, Any, Optional
 from binance.client import Client
-from binance.exceptions import BinanceAPIException
+from binance.exceptions import BinanceAPIException, BinanceRequestException
 import logging
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,6 @@ class BinanceDataIngestion:
                 klines = self.client.futures_klines(symbol='BTCUSDT', interval='1m', limit=1)
                 if klines:
                     logger.info(f"✅ 期货市场数据 API 连接成功")
-                    logger.info("📊 系统将以只读模式运行（仅获取市场数据）")
             except BinanceAPIException as e:
                 if '403' in str(e) or 'Forbidden' in str(e):
                     logger.warning("⚠️  期货 API 返回 403 错误")
@@ -144,6 +143,14 @@ class BinanceDataIngestion:
         if '403 Forbidden' in error_text or '<html>' in error_text:
             return "403 Forbidden - IP 访问被拒绝"
         
+        # 检查是否是空响应错误
+        if 'Invalid Response:' in error_text:
+            return "API 返回无效响应（可能是空响应或非 JSON 格式）"
+        
+        # 检查是否有 code 属性（BinanceRequestException 可能没有）
+        if not hasattr(error, 'code'):
+            return f"API 错误: {error_text}"
+        
         # 检查是否是速率限制
         if error.code in [429, 418]:
             return f"速率限制错误 (代码: {error.code})"
@@ -152,7 +159,11 @@ class BinanceDataIngestion:
         if error.code == -2015:
             return "API 密钥无效或权限不足"
         
-        return f"API 错误 (代码: {error.code}): {error.message}"
+        # 检查是否有 message 属性
+        if hasattr(error, 'message'):
+            return f"API 错误 (代码: {error.code}): {error.message}"
+        else:
+            return f"API 错误 (代码: {error.code}): {error_text}"
     
     def _suggest_solutions(self, error: BinanceAPIException):
         """
@@ -185,14 +196,14 @@ class BinanceDataIngestion:
             logger.info("     在 config.py 中设置 TESTNET = True")
         
         # 速率限制错误
-        elif error.code in [429, 418]:
+        elif hasattr(error, 'code') and error.code in [429, 418]:
             logger.info("1. 请求频率过高:")
             logger.info("   - 减少请求频率")
             logger.info("   - 增加调度间隔 (SCHEDULE_INTERVAL)")
             logger.info("   - 使用 WebSocket 代替 REST API")
         
         # API 密钥错误
-        elif error.code == -2015:
+        elif hasattr(error, 'code') and error.code == -2015:
             logger.info("1. API 密钥问题:")
             logger.info("   - 检查 .env 文件中的 BINANCE_API_KEY 和 BINANCE_API_SECRET")
             logger.info("   - 确保 API 密钥具有必要的权限（期货交易权限）")
@@ -200,7 +211,7 @@ class BinanceDataIngestion:
         
         logger.info("=" * 60 + "\n")
     
-    def _retry_request(self, func, max_retries: int = 3, backoff_factor: float = 2.0):
+    def _retry_request(self, func, max_retries: int = 3, backoff_factor: float = 2.0, allow_empty: bool = False):
         """
         带指数退避的重试机制
         
@@ -208,6 +219,7 @@ class BinanceDataIngestion:
             func: 要执行的函数
             max_retries: 最大重试次数
             backoff_factor: 退避因子
+            allow_empty: 是否允许空响应（某些测试网API可能返回空）
             
         Returns:
             函数执行结果
@@ -218,7 +230,7 @@ class BinanceDataIngestion:
             try:
                 return func()
                 
-            except BinanceAPIException as e:
+            except (BinanceAPIException, BinanceRequestException) as e:
                 last_error = e
                 error_text = str(e)
                 
@@ -228,8 +240,31 @@ class BinanceDataIngestion:
                     self._suggest_solutions(e)
                     raise
                 
+                # 检查是否是空响应错误（常见于测试网）
+                # 判断方式：错误信息包含 "Invalid Response:" 且后面是空白
+                if 'Invalid Response:' in error_text:
+                    # 提取 "Invalid Response:" 后面的内容
+                    parts = error_text.split('Invalid Response:')
+                    if len(parts) > 1:
+                        response_content = parts[1].strip()
+                        # 如果响应内容为空，说明是空响应
+                        if not response_content:
+                            if allow_empty:
+                                logger.warning(f"API 返回空响应（测试网限制），返回空数据")
+                                return [] if 'hist' in str(func) else {}
+                            else:
+                                logger.warning(f"API 返回空响应 (尝试 {attempt + 1}/{max_retries})")
+                                if attempt < max_retries - 1:
+                                    wait_time = backoff_factor ** attempt
+                                    logger.warning(f"等待 {wait_time} 秒后重试...")
+                                    time.sleep(wait_time)
+                                    continue
+                                # 最后一次尝试仍失败，返回空数据而不是抛异常
+                                logger.warning("多次重试后仍返回空响应，返回空数据")
+                                return [] if 'hist' in str(func) else {}
+                
                 # 速率限制错误，重试
-                if e.code in [429, 418]:
+                if hasattr(e, 'code') and e.code in [429, 418]:
                     if attempt < max_retries - 1:
                         wait_time = backoff_factor ** attempt
                         logger.warning(f"遇到速率限制 (尝试 {attempt + 1}/{max_retries})，等待 {wait_time} 秒后重试...")
@@ -310,7 +345,8 @@ class BinanceDataIngestion:
         def _get():
             return self.client.futures_open_interest(symbol=symbol)
         
-        return self._retry_request(_get)
+        # 允许空响应（测试网此接口可能不可用）
+        return self._retry_request(_get, allow_empty=True)
     
     def get_open_interest_hist(
         self, 
@@ -338,7 +374,8 @@ class BinanceDataIngestion:
                 limit=limit
             )
         
-        return self._retry_request(_get)
+        # 允许空响应（测试网此接口可能不可用）
+        return self._retry_request(_get, allow_empty=True)
     
     def get_funding_rate(self, symbol: str, limit: int = 1) -> List[Dict[str, Any]]:
         """
@@ -359,18 +396,27 @@ class BinanceDataIngestion:
                 limit=limit
             )
         
-        return self._retry_request(_get)
+        # 允许空响应（测试网此接口可能不可用）
+        return self._retry_request(_get, allow_empty=True)
     
     def get_account_info(self) -> Dict[str, Any]:
         """
-        获取账户信息（已禁用 - 需要账户权限）
+        获取账户信息（期货账户）
         
         Returns:
-            空字典（功能已禁用）
+            账户信息字典
         """
-        logger.warning("⚠️  get_account_info() 已被禁用 - 此功能需要账户权限")
-        logger.warning("如需使用账户功能，请在币安 API 设置中启用相应权限")
-        return {}
+        logger.debug("获取期货账户信息...")
+        
+        def _get():
+            return self.client.futures_account()
+        
+        try:
+            return self._retry_request(_get)
+        except BinanceAPIException as e:
+            logger.error(f"获取账户信息失败: {e}")
+            logger.warning("如需使用账户功能，请在币安 API 设置中启用账户权限")
+            return {}
     
     def get_all_market_data(
         self, 
@@ -416,25 +462,84 @@ class BinanceDataIngestion:
     
     def get_account_data(self) -> Dict[str, Any]:
         """
-        获取账户数据并提取关键信息（已禁用 - 需要账户权限）
+        获取账户数据并提取关键信息（期货账户）
         
         Returns:
-            包含模拟账户数据的字典（仅用于兼容性）
+            包含账户数据的字典
         """
-        logger.warning("⚠️  get_account_data() 已被禁用 - 此功能需要账户权限")
-        logger.info("返回模拟账户数据以保持系统运行")
+        logger.debug("获取期货账户数据...")
         
-        # 返回模拟数据以保持系统兼容性
-        account_data = {
-            'total_wallet_balance': 0.0,
-            'total_margin_balance': 0.0,
-            'available_balance': 0.0,
-            'total_unrealized_profit': 0.0,
-            'assets': [],
-            'positions': []
-        }
-        
-        return account_data
+        try:
+            account_info = self.get_account_info()
+            
+            if not account_info:
+                logger.warning("账户信息为空，返回默认值")
+                return {
+                    'total_wallet_balance': 0.0,
+                    'total_margin_balance': 0.0,
+                    'available_balance': 0.0,
+                    'total_unrealized_profit': 0.0,
+                    'assets': [],
+                    'positions': []
+                }
+            
+            # 提取账户余额信息
+            total_wallet_balance = float(account_info.get('totalWalletBalance', 0))
+            total_margin_balance = float(account_info.get('totalMarginBalance', 0))
+            available_balance = float(account_info.get('availableBalance', 0))
+            total_unrealized_profit = float(account_info.get('totalUnrealizedProfit', 0))
+            
+            # 提取资产列表
+            assets = []
+            for asset in account_info.get('assets', []):
+                if float(asset.get('walletBalance', 0)) > 0:
+                    assets.append({
+                        'asset': asset.get('asset'),
+                        'wallet_balance': float(asset.get('walletBalance', 0)),
+                        'unrealized_profit': float(asset.get('unrealizedProfit', 0)),
+                        'margin_balance': float(asset.get('marginBalance', 0)),
+                        'available_balance': float(asset.get('availableBalance', 0))
+                    })
+            
+            # 提取持仓列表（仅保留有持仓的）
+            positions = []
+            for pos in account_info.get('positions', []):
+                position_amt = float(pos.get('positionAmt', 0))
+                if position_amt != 0:
+                    positions.append({
+                        'symbol': pos.get('symbol'),
+                        'position_amt': position_amt,
+                        'entry_price': float(pos.get('entryPrice', 0)),
+                        'mark_price': float(pos.get('markPrice', 0)),
+                        'liquidation_price': float(pos.get('liquidationPrice', 0)),
+                        'unrealized_profit': float(pos.get('unRealizedProfit', 0)),
+                        'leverage': int(pos.get('leverage', 1)),
+                        'position_side': pos.get('positionSide', 'BOTH')
+                    })
+            
+            account_data = {
+                'total_wallet_balance': total_wallet_balance,
+                'total_margin_balance': total_margin_balance,
+                'available_balance': available_balance,
+                'total_unrealized_profit': total_unrealized_profit,
+                'assets': assets,
+                'positions': positions
+            }
+            
+            logger.info(f"✅ 账户信息获取成功: 余额=${total_wallet_balance:.2f}, 持仓数={len(positions)}")
+            
+            return account_data
+            
+        except Exception as e:
+            logger.error(f"获取账户数据失败: {e}")
+            return {
+                'total_wallet_balance': 0.0,
+                'total_margin_balance': 0.0,
+                'available_balance': 0.0,
+                'total_unrealized_profit': 0.0,
+                'assets': [],
+                'positions': []
+            }
 
 
 def create_binance_client() -> BinanceDataIngestion:
@@ -452,9 +557,14 @@ def create_binance_client() -> BinanceDataIngestion:
     # 获取代理配置
     proxies = BinanceConfig.get_proxy_dict()
     
+    # 获取正确的 API 凭证（testnet 或主网）
+    api_key, api_secret = BinanceConfig.get_api_credentials()
+    
+    logger.info(f"初始化币安客户端 (testnet={BinanceConfig.TESTNET})")
+    
     return BinanceDataIngestion(
-        api_key=BinanceConfig.API_KEY,
-        api_secret=BinanceConfig.API_SECRET,
+        api_key=api_key,
+        api_secret=api_secret,
         testnet=BinanceConfig.TESTNET,
         proxies=proxies,
         timeout=BinanceConfig.REQUEST_TIMEOUT,

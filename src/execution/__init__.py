@@ -10,7 +10,6 @@
 from src.execution.interface import ExecutionInterface
 from src.execution.manager import ExecutionManager
 from src.execution.adapters import (
-    BinanceMockAdapter,
     BinanceAdapter,
     HypeAdapter,
     AsterAdapter
@@ -19,7 +18,6 @@ from src.execution.adapters import (
 __all__ = [
     'ExecutionInterface',
     'ExecutionManager',
-    'BinanceMockAdapter',
     'BinanceAdapter',
     'HypeAdapter',
     'AsterAdapter'

@@ -14,7 +14,6 @@ from typing import Dict, List, Any, Optional
 
 from src.execution.interface import ExecutionInterface
 from src.execution.adapters import (
-    BinanceMockAdapter,
     BinanceAdapter,
     HypeAdapter,
     AsterAdapter
@@ -174,42 +173,31 @@ class ExecutionManager:
         return 0.0
 
 
-def create_execution_manager(binance_client=None) -> ExecutionManager:
+def create_execution_manager(binance_data_client=None) -> ExecutionManager:
     """
     创建执行管理器
     
     根据配置选择合适的适配器并创建执行管理器
     
     Args:
-        binance_client: 可选的币安客户端实例
+        binance_data_client: 可选的币安数据客户端实例（BinanceDataIngestion）
         
     Returns:
         ExecutionManager 实例
     """
-    from config import ExecutionConfig, Config
-    
-    # 检查是否强制使用模拟交易
-    if ExecutionConfig.PAPER_TRADING:
-        logger.warning("⚠️  配置中启用了模拟交易模式 (PAPER_TRADING=True)")
-        logger.info("使用 Binance 模拟合约适配器")
-        
-        state_file = str(Config.PROJECT_ROOT / 'data' / 'mock_trading_state.json')
-        adapter = BinanceMockAdapter(state_file=state_file)
-        return ExecutionManager(adapter)
+    from config import ExecutionConfig, BinanceConfig
     
     # 根据平台创建相应的适配器
     platform = ExecutionConfig.PLATFORM
     
     if platform == 'binance':
-        logger.warning("⚠️  实盘交易模式已启用 - 将执行真实订单!")
-        if not binance_client:
-            raise ValueError("Binance 平台需要提供 binance_client 参数")
-        adapter = BinanceAdapter(binance_client)
-    
-    elif platform == 'binance_mock':
-        logger.info("使用 Binance 模拟合约适配器")
-        state_file = str(Config.PROJECT_ROOT / 'data' / 'mock_trading_state.json')
-        adapter = BinanceMockAdapter(state_file=state_file)
+        if not binance_data_client:
+            raise ValueError("Binance 平台需要提供 binance_data_client 参数")
+        
+        # 使用配置中的测试网设置
+        is_testnet = BinanceConfig.TESTNET
+        
+        adapter = BinanceAdapter(binance_data_client, is_testnet=is_testnet)
     
     elif platform == 'hype':
         if not ExecutionConfig.HYPE_API_KEY or not ExecutionConfig.HYPE_API_SECRET:

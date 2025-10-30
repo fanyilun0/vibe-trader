@@ -96,7 +96,8 @@ class VibeTrader:
         self.ai_core = create_ai_decision_core()
         
         # 执行管理器 (新架构)
-        self.execution_manager = create_execution_manager(self.data_client.client)
+        # 注意: 传递 data_client (BinanceDataIngestion) 而不是 data_client.client
+        self.execution_manager = create_execution_manager(self.data_client)
         
         # 风险管理器
         self.risk_manager = create_risk_manager()
@@ -215,8 +216,8 @@ class VibeTrader:
             # 步骤 6: 执行交易
             self.logger.info("\n[步骤 5/6] 执行交易...")
             
-            # 检查是否为模拟交易模式
-            is_paper_trading = Config.execution.PAPER_TRADING or Config.execution.PLATFORM in ['binance_mock', 'papertrading']
+            # 检查是否为测试网模式
+            is_testnet = Config.binance.TESTNET if Config.execution.PLATFORM == 'binance' else False
             
             if decision.action == 'HOLD':
                 self.logger.info("💡 决策: HOLD - 保持观望")
@@ -243,8 +244,8 @@ class VibeTrader:
                     # 显示执行结果
                     if execution_result.get('status') == 'SUCCESS':
                         self.logger.info(f"✅ 交易执行成功!")
-                        if is_paper_trading:
-                            self.logger.info(f"   模式: 模拟交易")
+                        if is_testnet:
+                            self.logger.info(f"   模式: 测试网模拟交易")
                         
                         # 如果是开仓,显示持仓信息
                         if 'position' in execution_result:
@@ -265,21 +266,20 @@ class VibeTrader:
             self.logger.info(f"当前市场价格: ${market_features.get('current_price', 0):,.2f}")
             self.logger.info(f"市场趋势: EMA20={market_features.get('current_ema20', 0):.2f}, RSI={market_features.get('current_rsi_7', 0):.2f}")
             
-            # 显示账户状态 (如果是模拟交易)
-            if is_paper_trading:
-                try:
-                    account_state = self.execution_manager.get_account_state()
-                    balance_info = account_state['balance']
-                    self.logger.info(f"\n💰 账户状态:")
-                    self.logger.info(f"   可用余额: ${balance_info.get('available_balance', 0):,.2f}")
-                    if 'total_equity' in balance_info:
-                        self.logger.info(f"   总权益: ${balance_info.get('total_equity', 0):,.2f}")
-                    if 'unrealized_pnl' in balance_info:
-                        pnl = balance_info.get('unrealized_pnl', 0)
-                        pnl_sign = "+" if pnl >= 0 else ""
-                        self.logger.info(f"   未实现盈亏: {pnl_sign}${pnl:.2f}")
-                except Exception as e:
-                    self.logger.warning(f"获取账户状态失败: {e}")
+            # 显示账户状态
+            try:
+                account_state = self.execution_manager.get_account_state()
+                balance_info = account_state['balance']
+                self.logger.info(f"\n💰 账户状态:")
+                self.logger.info(f"   可用余额: ${balance_info.get('available_balance', 0):,.2f}")
+                if 'total_equity' in balance_info:
+                    self.logger.info(f"   总权益: ${balance_info.get('total_equity', 0):,.2f}")
+                if 'unrealized_pnl' in balance_info:
+                    pnl = balance_info.get('unrealized_pnl', 0)
+                    pnl_sign = "+" if pnl >= 0 else ""
+                    self.logger.info(f"   未实现盈亏: {pnl_sign}${pnl:.2f}")
+            except Exception as e:
+                self.logger.warning(f"获取账户状态失败: {e}")
             
             # 保存状态
             self.state_manager.save()

@@ -29,7 +29,11 @@ class BinanceConfig:
     API_KEY = os.getenv('BINANCE_API_KEY', '')
     API_SECRET = os.getenv('BINANCE_API_SECRET', '')
     BASE_URL = 'https://fapi.binance.com'  # U本位永续合约
-    TESTNET = False  # 是否使用测试网
+    TESTNET = os.getenv('BINANCE_TESTNET', 'false').lower() == 'true'  # 是否使用测试网
+    
+    # 测试网配置
+    TESTNET_API_KEY = os.getenv('BINANCE_TESTNET_API_KEY', '')
+    TESTNET_API_SECRET = os.getenv('BINANCE_TESTNET_API_SECRET', '')
     
     # 代理配置 (如果需要通过代理访问)
     # 支持完整 URL 格式: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080
@@ -44,11 +48,27 @@ class BinanceConfig:
     @classmethod
     def validate(cls) -> bool:
         """验证配置是否有效"""
+        # 如果使用测试网，验证测试网密钥
+        if cls.TESTNET:
+            if not cls.TESTNET_API_KEY or not cls.TESTNET_API_SECRET:
+                return False
+            if cls.TESTNET_API_KEY.startswith('your_') or cls.TESTNET_API_SECRET.startswith('your_'):
+                return False
+            return True
+        
+        # 否则验证主网密钥
         if not cls.API_KEY or not cls.API_SECRET:
             return False
         if cls.API_KEY.startswith('your_') or cls.API_SECRET.startswith('your_'):
             return False
         return True
+    
+    @classmethod
+    def get_api_credentials(cls) -> tuple:
+        """获取当前使用的API凭证"""
+        if cls.TESTNET:
+            return cls.TESTNET_API_KEY, cls.TESTNET_API_SECRET
+        return cls.API_KEY, cls.API_SECRET
     
     @classmethod
     def get_proxy_dict(cls) -> Dict[str, str]:
@@ -127,13 +147,7 @@ class TradingConfig:
 class ExecutionConfig:
     """执行平台配置"""
     
-    PLATFORM = 'binance'  # 可选: binance, hype, aster, papertrading, binance_mock
-    
-    # 交易执行开关
-    # ⚠️ 重要安全开关: 控制是否实际下单
-    # True: 只读模式,仅获取市场数据,不执行任何交易
-    # False: 实盘交易模式,会实际下单 (⚠️ 请谨慎使用!)
-    PAPER_TRADING = os.getenv('PAPER_TRADING', 'true').lower() == 'true'
+    PLATFORM = os.getenv('EXECUTION_PLATFORM', 'binance')  # 可选: binance, hype, aster
     
     # 其他平台 API 配置
     HYPE_API_KEY = os.getenv('HYPE_API_KEY', '')
@@ -275,8 +289,7 @@ class Config:
                 'schedule_interval': cls.trading.SCHEDULE_INTERVAL
             },
             'execution': {
-                'platform': cls.execution.PLATFORM,
-                'paper_trading': cls.execution.PAPER_TRADING
+                'platform': cls.execution.PLATFORM
             },
             'risk_management': cls.risk_management.to_dict(),
             'logging': {
@@ -309,11 +322,13 @@ class Config:
         
         print(f"\n🔐 API 配置:")
         print(f"  - 币安 API: {'✓ 已配置' if cls.binance.validate() else '✗ 未配置'}")
+        print(f"  - 币安测试网: {'✓ 已启用' if cls.binance.TESTNET else '✗ 未启用'}")
         print(f"  - Deepseek API: {'✓ 已配置' if cls.deepseek.validate() else '✗ 未配置'}")
         
         print(f"\n🎯 执行配置:")
         print(f"  - 平台: {cls.execution.PLATFORM}")
-        print(f"  - 模拟交易: {'✓ 已启用 (安全)' if cls.execution.PAPER_TRADING else '✗ 已禁用 (实盘!)'}")
+        if cls.execution.PLATFORM == 'binance':
+            print(f"  - 模式: {'测试网 (模拟交易)' if cls.binance.TESTNET else '主网 (实盘交易!)'}")
         
         print(f"\n🛡️ 风险管理:")
         print(f"  - 最大仓位: {cls.risk_management.MAX_POSITION_SIZE_PCT * 100}%")
@@ -342,8 +357,6 @@ DEEPSEEK_API_KEY = DeepseekConfig.API_KEY
 
 TRADING_SYMBOLS = TradingConfig.SYMBOLS
 SCHEDULE_INTERVAL = TradingConfig.SCHEDULE_INTERVAL
-
-PAPER_TRADING = ExecutionConfig.PAPER_TRADING
 
 MAX_POSITION_SIZE_PCT = RiskManagementConfig.MAX_POSITION_SIZE_PCT
 MIN_CONFIDENCE = RiskManagementConfig.MIN_CONFIDENCE
