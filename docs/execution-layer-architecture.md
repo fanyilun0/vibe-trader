@@ -223,12 +223,45 @@ if result['status'] == 'SUCCESS':
 
 ```
 src/execution/
-├── __init__.py          # 模块导出
-├── interface.py         # ExecutionInterface 抽象接口
-├── manager.py           # ExecutionManager 管理器
-├── adapters.py          # 各平台适配器实现
-└── binance_mock.py      # Binance 模拟交易引擎 (底层实现)
+├── __init__.py                # 模块导出
+├── interface.py               # ExecutionInterface 抽象接口
+├── manager.py                 # ExecutionManager 管理器
+├── adapters.py                # 适配器统一导出（向后兼容）
+│
+├── binance_adapter.py         # Binance 真实交易适配器
+├── binance_mock_adapter.py    # Binance 模拟交易适配器
+├── binance_mock.py            # Binance 模拟交易引擎（底层实现）
+│
+├── hype_adapter.py            # Hype 平台适配器
+└── aster_adapter.py           # Aster 平台适配器
 ```
+
+### 模块说明
+
+#### 核心接口和管理
+- **interface.py**: 定义 `ExecutionInterface` 抽象接口
+- **manager.py**: 实现 `ExecutionManager` 执行管理器
+- **adapters.py**: 统一导出所有适配器（向后兼容）
+
+#### Binance 相关
+- **binance_adapter.py**: 真实的 Binance 合约交易适配器
+  - 支持 testnet 和主网
+  - 实现账户数据缓存
+  - 完整的开仓/平仓逻辑
+  - 自动修正盈亏计算
+
+- **binance_mock_adapter.py**: 模拟交易适配器包装器
+  - 封装 BinanceMockExecution
+  - 实现 ExecutionInterface 接口
+
+- **binance_mock.py**: 模拟交易引擎底层实现
+  - 完整的账户管理
+  - 盈亏计算
+  - 强平检查
+
+#### 其他平台
+- **hype_adapter.py**: Hype 平台适配器（存根）
+- **aster_adapter.py**: Aster 平台适配器（存根）
 
 ## 测试验证
 
