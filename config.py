@@ -69,9 +69,10 @@ class DeepseekConfig:
     
     API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
     BASE_URL = 'https://api.deepseek.com'
-    MODEL = 'deepseek-reasoner'
-    MAX_TOKENS = 4000
-    TEMPERATURE = 1.0
+    MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-reasoner')  # 默认使用 deepseek-reasoner
+    MAX_TOKENS = int(os.getenv('DEEPSEEK_MAX_TOKENS', '8000'))
+    TEMPERATURE = float(os.getenv('DEEPSEEK_TEMPERATURE', '0.1'))  # 默认 0.1，更确定性的输出
+    TIMEOUT = int(os.getenv('DEEPSEEK_TIMEOUT', '120'))  # 请求超时时间（秒）
     
     @classmethod
     def validate(cls) -> bool:
@@ -264,7 +265,8 @@ class Config:
                 'base_url': cls.deepseek.BASE_URL,
                 'model': cls.deepseek.MODEL,
                 'max_tokens': cls.deepseek.MAX_TOKENS,
-                'temperature': cls.deepseek.TEMPERATURE
+                'temperature': cls.deepseek.TEMPERATURE,
+                'timeout': cls.deepseek.TIMEOUT
             },
             'trading': {
                 'symbols': cls.trading.SYMBOLS,

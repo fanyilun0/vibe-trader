@@ -2,18 +2,18 @@
 AI 决策核心 (AI Decision Core)
 
 负责:
-1. 构建结构化提示词
+1. 使用 PromptManager 构建提示词
 2. 调用 Deepseek LLM API
 3. 解析和验证返回的JSON决策
 """
 
-import os
 import json
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field, validator
 import requests
 import logging
+
+from src.prompt_manager import create_prompt_manager
 
 logger = logging.getLogger(__name__)
 
@@ -60,43 +60,6 @@ class TradingDecision(BaseModel):
 class AIDecisionCore:
     """AI决策核心"""
     
-    # 静态指令 (第一条user消息,用于缓存优化)
-    STATIC_INSTRUCTIONS = """You are a professional quantitative trader specializing in cryptocurrency perpetual futures trading. Your task is to analyze the provided market data and make informed trading decisions.
-
-CRITICAL RULES:
-1. You MUST respond ONLY in valid JSON format - no other text is allowed
-2. Always consider risk management - never risk more than the specified limits
-3. Provide clear, data-driven rationale for every decision
-4. Set realistic stop-loss levels to protect capital
-5. Consider both short-term (3-minute) and long-term (4-hour) timeframes
-6. Pay attention to funding rates and open interest trends
-
-REQUIRED OUTPUT JSON SCHEMA:
-{
-    "rationale": "Brief explanation of the trading decision (2-3 sentences)",
-    "confidence": 0.85,  // Float between 0.0 and 1.0
-    "action": "BUY",  // Must be one of: BUY, SELL, HOLD, CLOSE_POSITION
-    "symbol": "BTCUSDT",  // Required if action is not HOLD
-    "quantity_pct": 0.25,  // Float between 0.0 and 1.0, percentage of available margin to use
-    "exit_plan": {
-        "take_profit": 70000.0,  // Optional
-        "stop_loss": 65000.0,  // Required
-        "invalidation_conditions": "If 4h close breaks below EMA50, this bullish plan is invalidated"
-    }
-}
-
-ANALYSIS GUIDELINES:
-- EMA crossovers indicate trend changes
-- RSI below 30 suggests oversold (potential buy), above 70 suggests overbought (potential sell)
-- MACD crossovers and divergences signal momentum shifts
-- High/increasing open interest with price movement confirms trend strength
-- Positive funding rate indicates long bias, negative indicates short bias
-- ATR indicates volatility - use for stop-loss placement
-- Always set invalidation_conditions that would prove your analysis wrong
-
-Now analyze the market data and respond with your decision in JSON format.
-"""
-    
     def __init__(self, api_key: str, base_url: str = "https://api.deepseek.com", model: str = "deepseek-reasoner"):
         """
         初始化AI决策核心
@@ -115,167 +78,57 @@ Now analyze the market data and respond with your decision in JSON format.
             'Content-Type': 'application/json'
         })
         
+        # 初始化提示词管理器
+        self.prompt_manager = create_prompt_manager()
+        
         logger.info(f"AI决策核心初始化完成 (model={model})")
     
-    def build_market_prompt(
-        self,
-        market_features: Dict[str, Any],
-        account_features: Dict[str, Any],
-        global_state: Dict[str, Any]
-    ) -> str:
-        """
-        构建市场数据提示词 (第二条user消息,动态内容)
-        
-        Args:
-            market_features: 市场特征数据
-            account_features: 账户特征数据
-            global_state: 全局状态 (交易时长、调用次数等)
-            
-        Returns:
-            格式化的提示词字符串
-        """
-        symbol = market_features.get('symbol', 'UNKNOWN')
-        
-        prompt = f"""Trading Session Status:
-- Session Duration: {global_state.get('minutes_trading', 0)} minutes
-- Current Time: {global_state.get('current_timestamp', 'UNKNOWN')}
-- Invocation Count: {global_state.get('invocation_count', 0)}
-
-IMPORTANT: ALL PRICE AND SIGNAL DATA BELOW IS ORDERED FROM OLDEST TO NEWEST
-Timeframes: Short-term data uses 3-minute intervals, long-term context uses 4-hour intervals.
-
-=== CURRENT MARKET STATE FOR {symbol} ===
-
-Current Snapshot:
-- Price: {market_features.get('current_price')}
-- EMA20: {market_features.get('current_ema20')}
-- MACD: {market_features.get('current_macd')}
-- RSI (7-period): {market_features.get('current_rsi_7')}
-
-Derivatives Market Metrics:
-- Open Interest (Latest): {market_features.get('latest_open_interest')}
-- Open Interest (Average): {market_features.get('average_open_interest')}
-- Funding Rate: {market_features.get('funding_rate')}
-
-Short-Term Time Series (3-minute intervals, oldest to newest):
-- Mid Prices: {market_features.get('mid_prices_list', [])}
-- EMA20 Values: {market_features.get('ema20_list', [])}
-- MACD Values: {market_features.get('macd_list', [])}
-- RSI (7-period): {market_features.get('rsi_7_period_list', [])}
-- RSI (14-period): {market_features.get('rsi_14_period_list', [])}
-
-Long-Term Context (4-hour intervals):
-- EMA Comparison: EMA20={market_features.get('long_term_ema20')} vs EMA50={market_features.get('long_term_ema50')}
-- ATR Comparison: ATR3={market_features.get('long_term_atr3')} vs ATR14={market_features.get('long_term_atr14')}
-- Volume Analysis: Current={market_features.get('long_term_current_volume')} vs Average={market_features.get('long_term_average_volume')}
-- MACD Series: {market_features.get('long_term_macd_list', [])}
-- RSI Series (14-period): {market_features.get('long_term_rsi_14_period_list', [])}
-
-=== ACCOUNT STATUS & PORTFOLIO ===
-- Total Return: {account_features.get('total_return_percent', 0):.2f}%
-- Available Balance: {account_features.get('available_cash', 0)} USDT
-- Account Value: {account_features.get('account_value', 0)} USDT
-- Open Positions: {json.dumps(account_features.get('list_of_position_dictionaries', []), indent=2)}
-
-Based on the above market analysis and account status, provide your trading decision in the required JSON format.
-"""
-        
-        return prompt
-    
-    def save_prompt_to_file(
-        self,
-        market_features: Dict[str, Any],
-        account_features: Dict[str, Any],
-        global_state: Dict[str, Any],
-        save_dir: str = "prompts"
-    ) -> str:
-        """
-        保存提示词到本地文件
-        
-        Args:
-            market_features: 市场特征
-            account_features: 账户特征
-            global_state: 全局状态
-            save_dir: 保存目录
-            
-        Returns:
-            保存的文件路径
-        """
-        # 确保目录存在
-        os.makedirs(save_dir, exist_ok=True)
-        
-        # 生成文件名（使用时间戳）
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        invocation = global_state.get('invocation_count', 0)
-        filename = f"prompt_{timestamp}_inv{invocation}.txt"
-        filepath = os.path.join(save_dir, filename)
-        
-        # 构建完整提示词
-        market_prompt = self.build_market_prompt(market_features, account_features, global_state)
-        
-        full_prompt = f"""{'='*80}
-AI 交易决策提示词
-{'='*80}
-生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-调用次数: {invocation}
-{'='*80}
-
-[系统指令]
-{self.STATIC_INSTRUCTIONS}
-
-{'='*80}
-[市场数据]
-{'='*80}
-{market_prompt}
-
-{'='*80}
-"""
-        
-        # 保存到文件
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(full_prompt)
-        
-        logger.info(f"✅ 提示词已保存到: {filepath}")
-        return filepath
     
     def call_llm(
         self,
-        market_features: Dict[str, Any],
+        market_features_by_coin: Dict[str, Dict[str, Any]],
         account_features: Dict[str, Any],
         global_state: Dict[str, Any],
-        max_tokens: int = 4000,
-        temperature: float = 1.0
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         调用Deepseek LLM API
         
         Args:
-            market_features: 市场特征
+            market_features_by_coin: 按币种组织的市场特征数据
             account_features: 账户特征
             global_state: 全局状态
-            max_tokens: 最大token数
-            temperature: 温度参数
+            max_tokens: 最大token数（None 则使用配置）
+            temperature: 温度参数（None 则使用配置）
             
         Returns:
             LLM的原始响应
         """
-        # 保存提示词到本地
+        from config import DeepseekConfig
+        
+        # 使用配置中的默认值
+        if max_tokens is None:
+            max_tokens = DeepseekConfig.MAX_TOKENS
+        if temperature is None:
+            temperature = DeepseekConfig.TEMPERATURE
+        
+        # 使用 PromptManager 构建消息
+        messages = self.prompt_manager.get_messages(
+            market_features_by_coin,
+            account_features,
+            global_state
+        )
+        
+        # 保存提示词到本地（用于调试）
         try:
-            self.save_prompt_to_file(market_features, account_features, global_state)
+            self.prompt_manager.save_prompt_to_file(
+                market_features_by_coin,
+                account_features,
+                global_state
+            )
         except Exception as e:
             logger.warning(f"保存提示词失败: {e}")
-        
-        # 构建双user消息结构 (优化缓存)
-        messages = [
-            {
-                "role": "user",
-                "content": self.STATIC_INSTRUCTIONS
-            },
-            {
-                "role": "user",
-                "content": self.build_market_prompt(market_features, account_features, global_state)
-            }
-        ]
         
         # 构建API请求
         payload = {
@@ -283,21 +136,33 @@ AI 交易决策提示词
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "response_format": {"type": "json_object"}  # 强制JSON输出
+            "stream": False
         }
         
-        logger.info(f"调用 Deepseek API (model={self.model})")
+        logger.info(f"调用 Deepseek API (model={self.model}, temperature={temperature}, max_tokens={max_tokens})")
+        logger.info(f"  - 币种数量: {len(market_features_by_coin)}")
+        logger.info(f"  - 持仓数量: {len(account_features.get('list_of_position_dictionaries', []))}")
         
         try:
+            timeout = DeepseekConfig.TIMEOUT
             response = self.session.post(
-                f"{self.base_url}/v1/chat/completions",
+                f"{self.base_url}/chat/completions",
                 json=payload,
-                timeout=60
+                timeout=timeout
             )
             response.raise_for_status()
             
             result = response.json()
-            logger.debug(f"LLM响应: {json.dumps(result, indent=2)}")
+            
+            # 记录 token 使用情况
+            if 'usage' in result:
+                usage = result['usage']
+                logger.info(f"📊 Token 使用: "
+                          f"prompt={usage.get('prompt_tokens', 0)}, "
+                          f"completion={usage.get('completion_tokens', 0)}, "
+                          f"total={usage.get('total_tokens', 0)}")
+            
+            logger.debug(f"LLM响应: {json.dumps(result, indent=2, ensure_ascii=False)}")
             
             return result
             
@@ -305,12 +170,13 @@ AI 交易决策提示词
             logger.error(f"API调用失败: {e}")
             raise
     
-    def parse_and_validate_decision(self, llm_response: Dict[str, Any]) -> TradingDecision:
+    def parse_and_validate_decision(self, llm_response: Dict[str, Any], target_symbol: str) -> TradingDecision:
         """
-        解析和验证LLM响应
+        解析和验证LLM响应（新格式：多币种JSON）
         
         Args:
             llm_response: LLM的原始响应
+            target_symbol: 目标币种符号（如 "BTC"）
             
         Returns:
             验证后的TradingDecision对象
@@ -322,11 +188,58 @@ AI 交易决策提示词
             # 提取响应内容
             content = llm_response['choices'][0]['message']['content']
             
-            # 解析JSON
-            decision_dict = json.loads(content)
+            # 解析JSON（新格式是多币种结构）
+            decisions_by_coin = json.loads(content)
             
-            # 使用Pydantic验证
-            decision = TradingDecision(**decision_dict)
+            logger.info(f"收到 {len(decisions_by_coin)} 个币种的决策")
+            
+            # 提取目标币种的决策
+            if target_symbol not in decisions_by_coin:
+                # 如果目标币种没有决策，返回 HOLD
+                logger.warning(f"LLM未对 {target_symbol} 给出决策，默认为 HOLD")
+                return TradingDecision(
+                    rationale=f"LLM未给出明确决策，保持观望",
+                    confidence=0.5,
+                    action="HOLD",
+                    symbol=None,
+                    quantity_pct=None,
+                    exit_plan=None
+                )
+            
+            coin_decision = decisions_by_coin[target_symbol]
+            trade_signal_args = coin_decision.get('trade_signal_args', {})
+            
+            # 转换为 TradingDecision 格式
+            signal = trade_signal_args.get('signal', 'hold').upper()
+            
+            # 映射信号类型
+            action_mapping = {
+                'HOLD': 'HOLD',
+                'BUY_TO_ENTER': 'BUY',
+                'SELL_TO_ENTER': 'SELL',
+                'CLOSE_POSITION': 'CLOSE_POSITION'
+            }
+            
+            action = action_mapping.get(signal, 'HOLD')
+            
+            # 构建退出计划
+            exit_plan = None
+            if action in ['BUY', 'SELL']:
+                exit_plan = ExitPlan(
+                    take_profit=trade_signal_args.get('profit_target'),
+                    stop_loss=trade_signal_args.get('stop_loss'),
+                    invalidation_conditions=trade_signal_args.get('invalidation_condition', '')
+                )
+            
+            # 构建决策对象
+            decision = TradingDecision(
+                rationale=trade_signal_args.get('justification', '无理由'),
+                confidence=trade_signal_args.get('confidence', 0.5),
+                action=action,
+                symbol=f"{target_symbol}USDT" if action != 'HOLD' else None,
+                quantity_pct=trade_signal_args.get('risk_usd', 0) / 10000 if action in ['BUY', 'SELL'] else None,  # 简单估算
+                exit_plan=exit_plan
+            )
             
             logger.info(f"决策验证通过: action={decision.action}, symbol={decision.symbol}, confidence={decision.confidence}")
             
@@ -334,7 +247,7 @@ AI 交易决策提示词
             
         except (KeyError, json.JSONDecodeError, ValueError) as e:
             logger.error(f"决策解析失败: {e}")
-            logger.error(f"原始响应: {llm_response}")
+            logger.error(f"原始响应内容: {content if 'content' in locals() else '无法获取'}")
             raise ValueError(f"无法解析LLM响应: {e}")
     
     def make_decision(
@@ -347,7 +260,7 @@ AI 交易决策提示词
         生成交易决策 (完整流程)
         
         Args:
-            market_features: 市场特征
+            market_features: 单个币种的市场特征（保持向后兼容）
             account_features: 账户特征
             global_state: 全局状态
             
@@ -356,11 +269,20 @@ AI 交易决策提示词
         """
         logger.info("开始生成交易决策")
         
-        # 调用LLM
-        llm_response = self.call_llm(market_features, account_features, global_state)
+        # 将单币种市场特征转换为多币种格式
+        symbol = market_features.get('symbol', 'BTC')
+        # 提取币种符号（去除USDT后缀）
+        coin_symbol = symbol.replace('USDT', '')
         
-        # 解析和验证
-        decision = self.parse_and_validate_decision(llm_response)
+        market_features_by_coin = {
+            coin_symbol: market_features
+        }
+        
+        # 调用LLM
+        llm_response = self.call_llm(market_features_by_coin, account_features, global_state)
+        
+        # 解析和验证（传入目标币种）
+        decision = self.parse_and_validate_decision(llm_response, coin_symbol)
         
         return decision
 
@@ -376,6 +298,12 @@ def create_ai_decision_core() -> AIDecisionCore:
     
     if not DeepseekConfig.validate():
         raise ValueError("Deepseek API 密钥未正确配置,请检查 .env 文件")
+    
+    logger.info(f"创建 AI 决策核心:")
+    logger.info(f"  - 模型: {DeepseekConfig.MODEL}")
+    logger.info(f"  - Temperature: {DeepseekConfig.TEMPERATURE}")
+    logger.info(f"  - Max Tokens: {DeepseekConfig.MAX_TOKENS}")
+    logger.info(f"  - Timeout: {DeepseekConfig.TIMEOUT}s")
     
     return AIDecisionCore(
         DeepseekConfig.API_KEY,
