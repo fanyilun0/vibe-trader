@@ -40,6 +40,13 @@ class MockPosition:
     liquidation_price: float = 0.0  # 强平价格
     margin: float = 0.0  # 占用保证金
     entry_time: str = ""  # 开仓时间
+    mark_price: float = 0.0  # 标记价格
+    break_even_price: float = 0.0  # 盈亏平衡价格
+    roi_percent: float = 0.0  # 盈亏率(%)
+    margin_ratio: float = 0.0  # 保证金比率
+    notional_value: float = 0.0  # 名义价值
+    est_funding_fee: float = 0.0  # 预计资金费
+    position_side: str = "BOTH"  # 持仓方向标识
     
     def __post_init__(self):
         if not self.entry_time:
@@ -47,7 +54,7 @@ class MockPosition:
     
     def calculate_unrealized_pnl(self, current_price: float) -> float:
         """
-        计算未实现盈亏
+        计算未实现盈亏和相关指标
         
         Args:
             current_price: 当前市场价格
@@ -55,6 +62,10 @@ class MockPosition:
         Returns:
             未实现盈亏 (USDT)
         """
+        # 更新标记价格
+        self.mark_price = current_price
+        
+        # 计算未实现盈亏
         if self.side == 'LONG':
             # 多仓: (当前价 - 开仓价) * 数量
             pnl = (current_price - self.entry_price) * self.quantity
@@ -63,6 +74,23 @@ class MockPosition:
             pnl = (self.entry_price - current_price) * self.quantity
         
         self.unrealized_pnl = pnl
+        
+        # 计算名义价值
+        self.notional_value = self.quantity * current_price
+        
+        # 计算ROI百分比
+        if self.margin > 0:
+            self.roi_percent = (pnl / self.margin) * 100
+        else:
+            self.roi_percent = 0.0
+        
+        # 计算盈亏平衡价格（包含手续费 0.08%）
+        fee_rate = 0.0008
+        if self.side == 'LONG':
+            self.break_even_price = self.entry_price * (1 + fee_rate)
+        else:
+            self.break_even_price = self.entry_price * (1 - fee_rate)
+        
         return pnl
     
     def calculate_liquidation_price(self) -> float:

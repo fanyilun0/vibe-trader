@@ -167,10 +167,20 @@ class VibeTrader:
                 self.logger.info("\n📦 当前持仓:")
                 for pos in account_state['positions']:
                     pnl_sign = "+" if pos['unrealized_pnl'] >= 0 else ""
-                    self.logger.info(
-                        f"   {pos['symbol']}: {pos['side']} {pos['quantity']:.6f} @ "
-                        f"${pos['entry_price']:.2f} | 盈亏: {pnl_sign}${pos['unrealized_pnl']:.2f}"
-                    )
+                    roi_sign = "+" if pos.get('roi_percent', 0) >= 0 else ""
+                    
+                    self.logger.info(f"   {pos['symbol']} Perp {pos['leverage']}x")
+                    self.logger.info(f"      方向/数量: {pos['side']} {pos['quantity']:.6f}")
+                    self.logger.info(f"      入场价格: ${pos['entry_price']:.2f}")
+                    self.logger.info(f"      盈亏平衡: ${pos.get('break_even_price', 0):.2f}")
+                    self.logger.info(f"      标记价格: ${pos.get('mark_price', 0):.2f}")
+                    self.logger.info(f"      清算价格: ${pos.get('liquidation_price', 0):.2f}")
+                    self.logger.info(f"      保证金:   ${pos.get('margin', 0):.2f} USDT")
+                    self.logger.info(f"      盈亏:     {pnl_sign}${pos['unrealized_pnl']:.2f} ({roi_sign}{pos.get('roi_percent', 0):.2f}%)")
+                    if pos.get('est_funding_fee', 0) != 0:
+                        funding_sign = "+" if pos.get('est_funding_fee', 0) >= 0 else ""
+                        self.logger.info(f"      预计资金费: {funding_sign}${pos.get('est_funding_fee', 0):.2f} USDT")
+                    self.logger.info("")
             else:
                 self.logger.info("   无持仓")
             

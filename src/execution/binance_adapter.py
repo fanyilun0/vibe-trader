@@ -100,6 +100,18 @@ class BinanceAdapter(ExecutionInterface):
                 entry_price = pos.get('entry_price', 0)
                 mark_price = pos.get('mark_price', 0)
                 unrealized_profit = pos.get('unrealized_profit', 0)
+                leverage = pos.get('leverage', 1)
+                liquidation_price = pos.get('liquidation_price', 0)
+                symbol = pos.get('symbol')
+                
+                # 如果标记价格为0，尝试获取最新市场价格
+                if mark_price == 0 and symbol:
+                    try:
+                        ticker = self.client.futures_symbol_ticker(symbol=symbol)
+                        mark_price = float(ticker.get('price', 0))
+                        logger.debug(f"从ticker获取标记价格: {symbol} = ${mark_price:.2f}")
+                    except Exception as e:
+                        logger.warning(f"无法获取{symbol}的标记价格: {e}")
                 
                 # 如果 API 返回的未实现盈亏为 0，手动计算
                 # （某些情况下 Binance testnet 不返回正确的盈亏值）
@@ -109,15 +121,55 @@ class BinanceAdapter(ExecutionInterface):
                     elif position_amt < 0:  # 空仓
                         unrealized_profit = (entry_price - mark_price) * abs(position_amt)
                 
+                # 计算持仓名义价值
+                notional_value = abs(position_amt) * mark_price if mark_price > 0 else 0
+                
+                # 计算所需保证金（名义价值 / 杠杆）
+                margin = notional_value / leverage if leverage > 0 else 0
+                
+                # 计算盈亏率（ROI）
+                roi_percent = (unrealized_profit / margin * 100) if margin > 0 else 0
+                
+                # 计算保证金比率（需要从账户数据中获取）
+                margin_ratio = 0  # 暂时设为0，需要从账户总权益计算
+                
+                # 计算盈亏平衡价格（包含手续费）
+                # 假设开仓和平仓的手续费率总共为 0.08%（0.04% * 2）
+                fee_rate = 0.0008
+                if position_amt > 0:  # 多仓
+                    # 盈亏平衡价 = 入场价 * (1 + 手续费率 * 2)
+                    break_even_price = entry_price * (1 + fee_rate)
+                else:  # 空仓
+                    # 盈亏平衡价 = 入场价 * (1 - 手续费率 * 2)
+                    break_even_price = entry_price * (1 - fee_rate)
+                
+                # 尝试获取预计资金费
+                est_funding_fee = 0
+                try:
+                    if symbol:
+                        funding_rate_data = self.data_client.get_funding_rate(symbol, limit=1)
+                        if funding_rate_data and len(funding_rate_data) > 0:
+                            funding_rate = float(funding_rate_data[0].get('fundingRate', 0))
+                            # 预计资金费 = 持仓名义价值 * 资金费率
+                            est_funding_fee = notional_value * funding_rate
+                except Exception as e:
+                    logger.debug(f"无法获取资金费率: {e}")
+                
                 formatted_positions.append({
-                    'symbol': pos.get('symbol'),
+                    'symbol': symbol,
                     'side': 'LONG' if position_amt > 0 else 'SHORT',
                     'quantity': abs(position_amt),
                     'entry_price': entry_price,
                     'mark_price': mark_price,
+                    'break_even_price': break_even_price,
                     'unrealized_pnl': unrealized_profit,
-                    'leverage': pos.get('leverage', 1),
-                    'liquidation_price': pos.get('liquidation_price', 0),
+                    'roi_percent': roi_percent,
+                    'leverage': leverage,
+                    'liquidation_price': liquidation_price,
+                    'margin': margin,
+                    'margin_ratio': margin_ratio,
+                    'notional_value': notional_value,
+                    'est_funding_fee': est_funding_fee,
                     'position_side': pos.get('position_side', 'BOTH')
                 })
             

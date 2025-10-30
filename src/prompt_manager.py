@@ -237,20 +237,43 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         # 提取持仓信息
         positions = account_features.get('list_of_position_dictionaries', [])
         
-        # 格式化持仓信息
+        # 格式化持仓信息为详细表格
         positions_text = ""
-        for pos in positions:
-            positions_text += json.dumps(pos, ensure_ascii=False) + "\n"
+        if positions:
+            positions_text = "\n\n"
+            for pos in positions:
+                pnl_sign = "+" if pos.get('unrealized_pnl', 0) >= 0 else ""
+                roi_sign = "+" if pos.get('roi_percent', 0) >= 0 else ""
+                funding_sign = "+" if pos.get('est_funding_fee', 0) >= 0 else ""
+                
+                positions_text += f"""
+交易对: {pos.get('symbol', 'N/A')} Perp
+杠杆倍数: {pos.get('leverage', 1)}x
+持仓方向: {pos.get('side', 'N/A')}
+持仓数量: {pos.get('quantity', 0):.6f}
+入场价格: ${pos.get('entry_price', 0):,.2f}
+盈亏平衡价: ${pos.get('break_even_price', 0):,.2f}
+标记价格: ${pos.get('mark_price', 0):,.2f}
+清算价格: ${pos.get('liquidation_price', 0):,.2f}
+保证金: ${pos.get('margin', 0):,.2f} USDT (Cross)
+保证金比率: {pos.get('margin_ratio', 0):.2f}%
+未实现盈亏: {pnl_sign}${pos.get('unrealized_pnl', 0):,.2f} ({roi_sign}{pos.get('roi_percent', 0):.2f}%)
+预计资金费: {funding_sign}${pos.get('est_funding_fee', 0):,.2f} USDT
+名义价值: ${pos.get('notional_value', 0):,.2f}
+---
+"""
+        else:
+            positions_text = "\n无持仓\n"
         
         section = f"""### 这是你的账户信息和业绩
 
-当前总回报率(百分比):{account_features.get('total_return_percent', 0):.2f}%
+当前总回报率(百分比): {account_features.get('total_return_percent', 0):.2f}%
 
-可用现金:{account_features.get('available_cash', 0)}
+可用现金: ${account_features.get('available_cash', 0):,.2f}
 
-**当前账户价值:** {account_features.get('account_value', 0)}
+**当前账户价值:** ${account_features.get('account_value', 0):,.2f}
 
-当前持仓和业绩:{positions_text}"""
+**当前持仓详情:**{positions_text}"""
         
         return section
     
