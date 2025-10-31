@@ -189,6 +189,11 @@ class StateManager:
             'leverage': exit_plan.get('leverage'),
             'confidence': exit_plan.get('confidence'),
             'risk_usd': exit_plan.get('risk_usd'),
+            # 添加订单ID字段
+            'sl_oid': exit_plan.get('sl_oid', -1),  # 止损订单ID
+            'tp_oid': exit_plan.get('tp_oid', -1),  # 止盈订单ID
+            'entry_oid': exit_plan.get('entry_oid', -1),  # 入场订单ID
+            'wait_for_fill': exit_plan.get('wait_for_fill', False),  # 等待成交标志
             'created_at': datetime.now().isoformat()
         }
         

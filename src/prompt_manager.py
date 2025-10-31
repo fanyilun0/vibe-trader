@@ -252,13 +252,26 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
                 
                 exit_plan = exit_plans.get(symbol, {})
                 
+                # 获取当前价格和清算价格
+                # 尝试从多个字段获取当前价格
+                current_price = pos.get('current_price') or pos.get('mark_price', 0)
+                liquidation_price = pos.get('liquidation_price', 0)
+                
+                # 获取持仓数量（可能为负数表示空头）
+                quantity = pos.get('quantity', 0)
+                position_amt = pos.get('position_amt', quantity)
+                
+                # 如果position_amt存在且不为0，使用它（保留正负号）
+                if position_amt != 0:
+                    quantity = position_amt
+                
                 # 构建详细的持仓字典（包含所有执行细节）
                 position_dict = {
                     'symbol': symbol.replace('USDT', ''),  # 币种符号（不含USDT）
-                    'quantity': round(pos.get('quantity', 0), 2),  # 持仓数量
+                    'quantity': round(quantity, 2),  # 持仓数量（多头为正，空头为负）
                     'entry_price': round(pos.get('entry_price', 0), 2),  # 入场价格
-                    'current_price': round(pos.get('current_price', 0), 5),  # 当前价格
-                    'liquidation_price': round(pos.get('liquidation_price', 0), 2),  # 清算价格
+                    'current_price': round(current_price, 5),  # 当前价格
+                    'liquidation_price': round(liquidation_price, 2),  # 清算价格
                     'unrealized_pnl': round(pos.get('unrealized_pnl', 0), 2),  # 未实现盈亏
                     'leverage': pos.get('leverage', 1),  # 杠杆倍数
                     'exit_plan': {
@@ -282,7 +295,7 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         
         # 获取夏普比率（如果存在）
         sharpe_ratio = account_features.get('sharpe_ratio', 0)
-        sharpe_text = f"\n夏普比率: {sharpe_ratio:.3f}" if sharpe_ratio else ""
+        sharpe_text = f"\n\n夏普比率: {sharpe_ratio:.3f}" if sharpe_ratio else ""
         
         section = f"""### 这是你的账户信息和业绩
 

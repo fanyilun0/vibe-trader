@@ -211,17 +211,62 @@ class VibeTrader:
             total_equity = account_state['total_equity']
             total_return_pct = ((total_equity - initial_balance) / initial_balance * 100) if initial_balance > 0 else 0.0
             
+            # 步骤 3: 获取全局状态和exit_plans
+            global_state = self.state_manager.get_global_state()
+            exit_plans = self.state_manager.get_all_exit_plans()
+            
+            # 从exit_plans中提取订单ID信息并补充到持仓数据中
+            enriched_positions = []
+            for pos in account_state['positions']:
+                symbol = pos.get('symbol')
+                # 创建持仓副本
+                enriched_pos = pos.copy()
+                
+                # 从exit_plan获取订单ID信息（如果存在）
+                if symbol in exit_plans:
+                    exit_plan = exit_plans[symbol]
+                    enriched_pos['sl_oid'] = exit_plan.get('sl_oid', -1)
+                    enriched_pos['tp_oid'] = exit_plan.get('tp_oid', -1)
+                    enriched_pos['entry_oid'] = exit_plan.get('entry_oid', -1)
+                    enriched_pos['wait_for_fill'] = exit_plan.get('wait_for_fill', False)
+                
+                enriched_positions.append(enriched_pos)
+            
+            # 计算夏普比率（简化版本：基于历史收益率）
+            # 从状态管理器获取历史业绩数据
+            sharpe_ratio = 0.0
+            try:
+                performance_history = self.state_manager.state.get('performance_history', [])
+                if len(performance_history) > 10:  # 至少需要10个数据点
+                    # 提取收益率序列
+                    returns = []
+                    for i in range(1, len(performance_history)):
+                        prev_value = performance_history[i-1]['metrics'].get('account_value', 0)
+                        curr_value = performance_history[i]['metrics'].get('account_value', 0)
+                        if prev_value > 0:
+                            ret = (curr_value - prev_value) / prev_value
+                            returns.append(ret)
+                    
+                    # 计算夏普比率 = 平均收益率 / 收益率标准差
+                    if len(returns) > 1:
+                        import numpy as np
+                        mean_return = np.mean(returns)
+                        std_return = np.std(returns)
+                        if std_return > 0:
+                            # 年化夏普比率（假设每3分钟一次，一年约175200次）
+                            sharpe_ratio = mean_return / std_return * np.sqrt(175200)
+            except Exception as e:
+                self.logger.warning(f"计算夏普比率失败: {e}")
+                sharpe_ratio = 0.0
+            
             # 构建账户特征（用于AI决策提示词）
             account_features = {
                 'total_return_percent': total_return_pct,
                 'available_cash': account_state['available_balance'],
                 'account_value': total_equity,
-                'list_of_position_dictionaries': account_state['positions']
+                'list_of_position_dictionaries': enriched_positions,
+                'sharpe_ratio': sharpe_ratio
             }
-            
-            # 步骤 3: 获取全局状态和exit_plans
-            global_state = self.state_manager.get_global_state()
-            exit_plans = self.state_manager.get_all_exit_plans()
             
             # 步骤 4: AI 决策（多币种）
             self.logger.info("\n[步骤 3/6] AI 决策生成...")

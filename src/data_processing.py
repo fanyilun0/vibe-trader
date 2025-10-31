@@ -340,19 +340,26 @@ class DataProcessor:
         for pos in account_data.get('positions', []):
             position_dict = {
                 'symbol': pos['symbol'],
-                'quantity': pos['position_amt'],
+                'quantity': abs(pos['position_amt']),  # 转换为绝对值
+                'position_amt': pos['position_amt'],  # 保留原始值（多头为正，空头为负）
                 'entry_price': pos['entry_price'],
                 'current_price': pos['mark_price'],
-                'liquidation_price': pos['liquidation_price'],
+                'mark_price': pos['mark_price'],  # 添加mark_price字段
+                'liquidation_price': pos.get('liquidation_price', 0),  # 清算价格
                 'unrealized_pnl': pos['unrealized_profit'],
                 'leverage': pos['leverage'],
                 'position_side': pos['position_side'],
+                # 订单相关字段（从持仓元数据或状态管理器获取）
+                'sl_oid': pos.get('sl_oid', -1),  # 止损订单ID
+                'tp_oid': pos.get('tp_oid', -1),  # 止盈订单ID
+                'entry_oid': pos.get('entry_oid', -1),  # 入场订单ID
+                'wait_for_fill': pos.get('wait_for_fill', False),  # 等待成交标志
             }
             
             # 计算名义价值和风险
             notional_value = abs(pos['position_amt']) * pos['mark_price']
             position_dict['notional_usd'] = notional_value
-            position_dict['risk_usd'] = notional_value / pos['leverage']
+            position_dict['risk_usd'] = notional_value / pos['leverage'] if pos['leverage'] > 0 else 0
             
             positions.append(position_dict)
         
