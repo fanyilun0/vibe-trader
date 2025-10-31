@@ -232,7 +232,14 @@ class BinanceMockExecution:
         Returns:
             持仓信息列表
         """
-        return [pos.to_dict() for pos in self.positions.values()]
+        positions = []
+        for pos in self.positions.values():
+            pos_dict = pos.to_dict()
+            # 移除清算价格和资金费字段，保持输出简洁
+            pos_dict.pop('liquidation_price', None)
+            pos_dict.pop('est_funding_fee', None)
+            positions.append(pos_dict)
+        return positions
     
     def get_position(self, symbol: str) -> Optional[MockPosition]:
         """
@@ -504,6 +511,11 @@ class BinanceMockExecution:
                 leverage=self.leverage
             )
             
+            # 移除清算价格和资金费字段，保持输出简洁
+            pos_dict = position.to_dict()
+            pos_dict.pop('liquidation_price', None)
+            pos_dict.pop('est_funding_fee', None)
+            
             return {
                 'status': 'SUCCESS',
                 'action': decision.action,
@@ -511,7 +523,7 @@ class BinanceMockExecution:
                 'side': side,
                 'quantity': quantity,
                 'entry_price': current_price,
-                'position': position.to_dict(),
+                'position': pos_dict,
                 'timestamp': datetime.now().isoformat()
             }
             

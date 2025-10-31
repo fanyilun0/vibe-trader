@@ -200,12 +200,8 @@ class VibeTrader:
                     self.logger.info(f"      入场价格: ${pos['entry_price']:.2f}")
                     self.logger.info(f"      盈亏平衡: ${pos.get('break_even_price', 0):.2f}")
                     self.logger.info(f"      标记价格: ${pos.get('mark_price', 0):.2f}")
-                    self.logger.info(f"      清算价格: ${pos.get('liquidation_price', 0):.2f}")
                     self.logger.info(f"      保证金:   ${pos.get('margin', 0):.2f} USDT")
                     self.logger.info(f"      盈亏:     {pnl_sign}${pos['unrealized_pnl']:.2f} ({roi_sign}{pos.get('roi_percent', 0):.2f}%)")
-                    if pos.get('est_funding_fee', 0) != 0:
-                        funding_sign = "+" if pos.get('est_funding_fee', 0) >= 0 else ""
-                        self.logger.info(f"      预计资金费: {funding_sign}${pos.get('est_funding_fee', 0):.2f} USDT")
                     self.logger.info("")
             else:
                 self.logger.info("   无持仓")
@@ -351,7 +347,6 @@ class VibeTrader:
                             pos = execution_result['position']
                             self.logger.info(f"   持仓: {pos['side']} {pos['quantity']:.4f} {pos['symbol']}")
                             self.logger.info(f"   开仓价: ${pos['entry_price']:.2f}")
-                            self.logger.info(f"   强平价: ${pos['liquidation_price']:.2f}")
                     elif execution_result.get('status') == 'SKIPPED':
                         self.logger.info(f"ℹ️  {execution_result.get('message', '跳过执行')}")
                     else:

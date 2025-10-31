@@ -243,58 +243,55 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         if exit_plans is None:
             exit_plans = {}
         
-        # 格式化持仓信息为JSON数组（按TODO要求）
-        positions_json_list = []
+        # 格式化持仓信息为详细字典格式（与参考文件一致）
+        positions_text = ""
         if positions:
+            positions_text = "\n\n当前持仓及执行情况: \n\n"
             for pos in positions:
                 symbol = pos.get('symbol', 'N/A')
                 
-                # 构建持仓JSON对象
-                position_obj = {
-                    "symbol": symbol, # 交易对符号
-                    "leverage": pos.get('leverage', 1), # 杠杆倍数
-                    "side": pos.get('side', 'N/A'), # 持仓方向
-                    "quantity": round(pos.get('quantity', 0), 6), # 持仓数量
-                    "entry_price": round(pos.get('entry_price', 0), 2), # 开仓价格
-                    "break_even_price": round(pos.get('break_even_price', 0), 2), # 盈亏平衡价格
-                    "mark_price": round(pos.get('mark_price', 0), 2), # 标记价格
-                    "margin": round(pos.get('margin', 0), 2), # 占用保证金
-                    "margin_ratio": round(pos.get('margin_ratio', 0), 2), # 保证金比率
-                    "unrealized_pnl": round(pos.get('unrealized_pnl', 0), 2), # 未实现盈亏
-                    "roi_percent": round(pos.get('roi_percent', 0), 2), # 盈亏率(%)
+                exit_plan = exit_plans.get(symbol, {})
+                
+                # 构建详细的持仓字典（包含所有执行细节）
+                position_dict = {
+                    'symbol': symbol.replace('USDT', ''),  # 币种符号（不含USDT）
+                    'quantity': round(pos.get('quantity', 0), 2),  # 持仓数量
+                    'entry_price': round(pos.get('entry_price', 0), 2),  # 入场价格
+                    'current_price': round(pos.get('current_price', 0), 5),  # 当前价格
+                    'liquidation_price': round(pos.get('liquidation_price', 0), 2),  # 清算价格
+                    'unrealized_pnl': round(pos.get('unrealized_pnl', 0), 2),  # 未实现盈亏
+                    'leverage': pos.get('leverage', 1),  # 杠杆倍数
+                    'exit_plan': {
+                        'profit_target': exit_plan.get('profit_target', 0),
+                        'stop_loss': exit_plan.get('stop_loss', 0),
+                        'invalidation_condition': exit_plan.get('invalidation_condition', '')
+                    },
+                    'confidence': exit_plan.get('confidence', 0),  # 置信度
+                    'risk_usd': exit_plan.get('risk_usd', 0),  # 风险金额
+                    'sl_oid': pos.get('sl_oid', -1),  # 止损订单ID
+                    'tp_oid': pos.get('tp_oid', -1),  # 止盈订单ID
+                    'wait_for_fill': pos.get('wait_for_fill', False),  # 等待成交标志
+                    'entry_oid': pos.get('entry_oid', -1),  # 入场订单ID
+                    'notional_usd': round(pos.get('notional_usd', 0), 2)  # 名义价值（美元）
                 }
                 
-                # 添加exit_plan（如果存在）
-                exit_plan = exit_plans.get(symbol)
-                if exit_plan:
-                    position_obj["exit_plan"] = {
-                        "profit_target": exit_plan.get('profit_target'),
-                        "stop_loss": exit_plan.get('stop_loss'),
-                        "invalidation_condition": exit_plan.get('invalidation_condition', ''),
-                        "leverage": exit_plan.get('leverage'),
-                        "confidence": exit_plan.get('confidence'),
-                        "risk_usd": exit_plan.get('risk_usd')
-                    }
-                
-                positions_json_list.append(position_obj)
-        
-        # 将持仓列表转换为格式化的JSON字符串
-        positions_text = ""
-        if positions_json_list:
-            positions_json_str = json.dumps(positions_json_list, indent=2, ensure_ascii=False)
-            positions_text = f"\n\n持仓列表（JSON格式）:\n```json\n{positions_json_str}\n```\n"
+                # 格式化为单行字典字符串
+                positions_text += f"{position_dict} \n"
         else:
             positions_text = "\n\n无持仓\n"
+        
+        # 获取夏普比率（如果存在）
+        sharpe_ratio = account_features.get('sharpe_ratio', 0)
+        sharpe_text = f"\n夏普比率: {sharpe_ratio:.3f}" if sharpe_ratio else ""
         
         section = f"""### 这是你的账户信息和业绩
 
 当前总回报率(百分比): {account_features.get('total_return_percent', 0):.2f}%
 
-可用现金: ${account_features.get('available_cash', 0):,.2f}
+可用现金: {account_features.get('available_cash', 0):.2f}
 
-**当前账户价值:** ${account_features.get('account_value', 0):,.2f}
-
-**当前持仓详情:**{positions_text}"""
+当前账户价值: {account_features.get('account_value', 0):.2f}
+{positions_text}{sharpe_text}"""
         
         return section
     
