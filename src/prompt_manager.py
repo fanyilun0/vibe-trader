@@ -169,7 +169,7 @@ class PromptManager:
         """
         # 格式化列表数据
         def format_list(data_list, precision=2):
-            """格式化数组数据"""
+            """格式化数组数据（单行显示）"""
             if not data_list:
                 return "[]"
             
@@ -180,7 +180,8 @@ class PromptManager:
                 else:
                     formatted.append(str(value))
             
-            return "[\n" + ",\n".join(formatted) + "\n]"
+            # 改为单行显示，用逗号+空格分隔
+            return "[" + ", ".join(formatted) + "]"
         
         # 构建币种数据部分
         section = f"""### 所有 {coin_symbol} 数据
@@ -223,13 +224,15 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
     
     def build_account_section(
         self,
-        account_features: Dict[str, Any]
+        account_features: Dict[str, Any],
+        exit_plans: Dict[str, Dict[str, Any]] = None
     ) -> str:
         """
         构建账户信息部分
         
         Args:
             account_features: 账户特征数据
+            exit_plans: 持仓的退出计划字典 {symbol: exit_plan}
             
         Returns:
             格式化的账户信息字符串
@@ -237,33 +240,51 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         # 提取持仓信息
         positions = account_features.get('list_of_position_dictionaries', [])
         
-        # 格式化持仓信息为详细表格
-        positions_text = ""
+        if exit_plans is None:
+            exit_plans = {}
+        
+        # 格式化持仓信息为JSON数组（按TODO要求）
+        positions_json_list = []
         if positions:
-            positions_text = "\n\n"
             for pos in positions:
-                pnl_sign = "+" if pos.get('unrealized_pnl', 0) >= 0 else ""
-                roi_sign = "+" if pos.get('roi_percent', 0) >= 0 else ""
-                funding_sign = "+" if pos.get('est_funding_fee', 0) >= 0 else ""
+                symbol = pos.get('symbol', 'N/A')
                 
-                positions_text += f"""
-交易对: {pos.get('symbol', 'N/A')} Perp
-杠杆倍数: {pos.get('leverage', 1)}x
-持仓方向: {pos.get('side', 'N/A')}
-持仓数量: {pos.get('quantity', 0):.6f}
-入场价格: ${pos.get('entry_price', 0):,.2f}
-盈亏平衡价: ${pos.get('break_even_price', 0):,.2f}
-标记价格: ${pos.get('mark_price', 0):,.2f}
-清算价格: ${pos.get('liquidation_price', 0):,.2f}
-保证金: ${pos.get('margin', 0):,.2f} USDT (Cross)
-保证金比率: {pos.get('margin_ratio', 0):.2f}%
-未实现盈亏: {pnl_sign}${pos.get('unrealized_pnl', 0):,.2f} ({roi_sign}{pos.get('roi_percent', 0):.2f}%)
-预计资金费: {funding_sign}${pos.get('est_funding_fee', 0):,.2f} USDT
-名义价值: ${pos.get('notional_value', 0):,.2f}
----
-"""
+                # 构建持仓JSON对象
+                position_obj = {
+                    "symbol": symbol, # 交易对符号
+                    "leverage": pos.get('leverage', 1), # 杠杆倍数
+                    "side": pos.get('side', 'N/A'), # 持仓方向
+                    "quantity": round(pos.get('quantity', 0), 6), # 持仓数量
+                    "entry_price": round(pos.get('entry_price', 0), 2), # 开仓价格
+                    "break_even_price": round(pos.get('break_even_price', 0), 2), # 盈亏平衡价格
+                    "mark_price": round(pos.get('mark_price', 0), 2), # 标记价格
+                    "margin": round(pos.get('margin', 0), 2), # 占用保证金
+                    "margin_ratio": round(pos.get('margin_ratio', 0), 2), # 保证金比率
+                    "unrealized_pnl": round(pos.get('unrealized_pnl', 0), 2), # 未实现盈亏
+                    "roi_percent": round(pos.get('roi_percent', 0), 2), # 盈亏率(%)
+                }
+                
+                # 添加exit_plan（如果存在）
+                exit_plan = exit_plans.get(symbol)
+                if exit_plan:
+                    position_obj["exit_plan"] = {
+                        "profit_target": exit_plan.get('profit_target'),
+                        "stop_loss": exit_plan.get('stop_loss'),
+                        "invalidation_condition": exit_plan.get('invalidation_condition', ''),
+                        "leverage": exit_plan.get('leverage'),
+                        "confidence": exit_plan.get('confidence'),
+                        "risk_usd": exit_plan.get('risk_usd')
+                    }
+                
+                positions_json_list.append(position_obj)
+        
+        # 将持仓列表转换为格式化的JSON字符串
+        positions_text = ""
+        if positions_json_list:
+            positions_json_str = json.dumps(positions_json_list, indent=2, ensure_ascii=False)
+            positions_text = f"\n\n持仓列表（JSON格式）:\n```json\n{positions_json_str}\n```\n"
         else:
-            positions_text = "\n无持仓\n"
+            positions_text = "\n\n无持仓\n"
         
         section = f"""### 这是你的账户信息和业绩
 
@@ -281,7 +302,8 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         self,
         market_features_by_coin: Dict[str, Dict[str, Any]],
         account_features: Dict[str, Any],
-        global_state: Dict[str, Any]
+        global_state: Dict[str, Any],
+        exit_plans: Dict[str, Dict[str, Any]] = None
     ) -> str:
         """
         构建完整的用户提示词
@@ -290,6 +312,7 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
             market_features_by_coin: 按币种组织的市场特征数据 {"BTC": {...}, "ETH": {...}}
             account_features: 账户特征数据
             global_state: 全局状态（交易时长、调用次数等）
+            exit_plans: 持仓的退出计划字典 {symbol: exit_plan}
             
         Returns:
             完整的用户提示词
@@ -317,8 +340,8 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
             coin_section = self.build_coin_data_section(coin_symbol, market_features)
             coin_sections.append(coin_section)
         
-        # 构建账户信息部分
-        account_section = self.build_account_section(account_features)
+        # 构建账户信息部分（传递exit_plans）
+        account_section = self.build_account_section(account_features, exit_plans)
         
         # 组合完整的用户提示词
         user_prompt = header + "\n".join(coin_sections) + "\n" + account_section
@@ -338,7 +361,8 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         self,
         market_features_by_coin: Dict[str, Dict[str, Any]],
         account_features: Dict[str, Any],
-        global_state: Dict[str, Any]
+        global_state: Dict[str, Any],
+        exit_plans: Dict[str, Dict[str, Any]] = None
     ) -> List[Dict[str, str]]:
         """
         构建完整的消息列表（用于 API 调用）
@@ -347,6 +371,7 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
             market_features_by_coin: 按币种组织的市场特征数据
             account_features: 账户特征数据
             global_state: 全局状态
+            exit_plans: 持仓的退出计划字典 {symbol: exit_plan}
             
         Returns:
             消息列表 [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
@@ -357,11 +382,12 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
             "content": self.get_system_prompt()
         }
         
-        # 构建用户消息
+        # 构建用户消息（传递exit_plans）
         user_prompt = self.build_user_prompt(
             market_features_by_coin,
             account_features,
-            global_state
+            global_state,
+            exit_plans
         )
         
         user_message = {
@@ -379,6 +405,7 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         market_features_by_coin: Dict[str, Dict[str, Any]],
         account_features: Dict[str, Any],
         global_state: Dict[str, Any],
+        exit_plans: Dict[str, Dict[str, Any]] = None,
         save_dir: str = "prompts"
     ) -> str:
         """
@@ -388,6 +415,7 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
             market_features_by_coin: 按币种组织的市场特征数据
             account_features: 账户特征数据
             global_state: 全局状态
+            exit_plans: 持仓的退出计划字典 {symbol: exit_plan}
             save_dir: 保存目录
             
         Returns:
@@ -402,8 +430,8 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         filename = f"prompt_{timestamp}_inv{invocation}.txt"
         filepath = os.path.join(save_dir, filename)
         
-        # 构建完整提示词
-        messages = self.get_messages(market_features_by_coin, account_features, global_state)
+        # 构建完整提示词（传递exit_plans）
+        messages = self.get_messages(market_features_by_coin, account_features, global_state, exit_plans)
         
         full_prompt = f"""{'='*80}
 AI 交易决策提示词

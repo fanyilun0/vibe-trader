@@ -36,6 +36,8 @@ class TradingDecision(BaseModel):
     symbol: Optional[str] = Field(None, description="交易对符号")
     quantity_pct: Optional[float] = Field(None, ge=0.0, le=1.0, description="仓位百分比 (0-1)")
     exit_plan: Optional[ExitPlan] = Field(None, description="退出计划")
+    leverage: Optional[int] = Field(None, description="杠杆倍数")
+    risk_usd: Optional[float] = Field(None, description="风险金额(USD)")
     
     @validator('action')
     def validate_action(cls, v):
@@ -148,6 +150,12 @@ class AIDecisionCore:
             except json.JSONDecodeError:
                 # 如果不是JSON，直接保存内容
                 response_text += content + "\n"
+
+            # 提取推理信息
+            reasoning_info = llm_response.get('choices', [{}])[0].get('message', {}).get('reasoning_content', '')
+            response_text += "Reasoning Info:\n"
+            response_text += "-" * 80 + "\n"
+            response_text += reasoning_info + "\n"
             
             # 写入文件
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -165,6 +173,7 @@ class AIDecisionCore:
         market_features_by_coin: Dict[str, Dict[str, Any]],
         account_features: Dict[str, Any],
         global_state: Dict[str, Any],
+        exit_plans: Dict[str, Dict[str, Any]] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None
     ) -> Dict[str, Any]:
@@ -175,6 +184,7 @@ class AIDecisionCore:
             market_features_by_coin: 按币种组织的市场特征数据
             account_features: 账户特征
             global_state: 全局状态
+            exit_plans: 持仓的退出计划字典 {symbol: exit_plan}
             max_tokens: 最大token数（None 则使用配置）
             temperature: 温度参数（None 则使用配置）
             
@@ -189,11 +199,12 @@ class AIDecisionCore:
         if temperature is None:
             temperature = DeepseekConfig.TEMPERATURE
         
-        # 使用 PromptManager 构建消息
+        # 使用 PromptManager 构建消息（传递exit_plans）
         messages = self.prompt_manager.get_messages(
             market_features_by_coin,
             account_features,
-            global_state
+            global_state,
+            exit_plans
         )
         
         # 保存提示词到本地（用于调试）
@@ -201,7 +212,8 @@ class AIDecisionCore:
             self.prompt_manager.save_prompt_to_file(
                 market_features_by_coin,
                 account_features,
-                global_state
+                global_state,
+                exit_plans
             )
         except Exception as e:
             logger.warning(f"保存提示词失败: {e}")
@@ -321,7 +333,9 @@ class AIDecisionCore:
                 action=action,
                 symbol=f"{target_symbol}USDT" if action != 'HOLD' else None,
                 quantity_pct=trade_signal_args.get('risk_usd', 0) / 10000 if action in ['BUY', 'SELL'] else None,  # 简单估算
-                exit_plan=exit_plan
+                exit_plan=exit_plan,
+                leverage=trade_signal_args.get('leverage'),
+                risk_usd=trade_signal_args.get('risk_usd')
             )
             
             logger.info(f"决策验证通过: action={decision.action}, symbol={decision.symbol}, confidence={decision.confidence}")
@@ -385,7 +399,8 @@ class AIDecisionCore:
         self,
         market_features_by_coin: Dict[str, Dict[str, Any]],
         account_features: Dict[str, Any],
-        global_state: Dict[str, Any]
+        global_state: Dict[str, Any],
+        exit_plans: Dict[str, Dict[str, Any]] = None
     ) -> Dict[str, TradingDecision]:
         """
         生成多个币种的交易决策
@@ -394,14 +409,15 @@ class AIDecisionCore:
             market_features_by_coin: 按币种组织的市场特征
             account_features: 账户特征
             global_state: 全局状态
+            exit_plans: 持仓的退出计划字典 {symbol: exit_plan}
             
         Returns:
             币种符号 -> 交易决策的字典
         """
         logger.info(f"开始生成 {len(market_features_by_coin)} 个币种的交易决策")
         
-        # 调用LLM（一次调用处理所有币种）
-        llm_response = self.call_llm(market_features_by_coin, account_features, global_state)
+        # 调用LLM（一次调用处理所有币种，传递exit_plans）
+        llm_response = self.call_llm(market_features_by_coin, account_features, global_state, exit_plans)
         
         # 为每个币种解析决策
         decisions = {}

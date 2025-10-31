@@ -479,6 +479,7 @@ class BinanceDataIngestion:
                     'total_margin_balance': 0.0,
                     'available_balance': 0.0,
                     'total_unrealized_profit': 0.0,
+                    'total_maintenance_margin': 0.0,
                     'assets': [],
                     'positions': []
                 }
@@ -488,6 +489,7 @@ class BinanceDataIngestion:
             total_margin_balance = float(account_info.get('totalMarginBalance', 0))
             available_balance = float(account_info.get('availableBalance', 0))
             total_unrealized_profit = float(account_info.get('totalUnrealizedProfit', 0))
+            total_maintenance_margin = float(account_info.get('totalMaintMargin', 0))  # 维持保证金
             
             # 提取资产列表
             assets = []
@@ -522,6 +524,7 @@ class BinanceDataIngestion:
                 'total_margin_balance': total_margin_balance,
                 'available_balance': available_balance,
                 'total_unrealized_profit': total_unrealized_profit,
+                'total_maintenance_margin': total_maintenance_margin,  # 添加维持保证金
                 'assets': assets,
                 'positions': positions
             }
@@ -537,6 +540,7 @@ class BinanceDataIngestion:
                 'total_margin_balance': 0.0,
                 'available_balance': 0.0,
                 'total_unrealized_profit': 0.0,
+                'total_maintenance_margin': 0.0,
                 'assets': [],
                 'positions': []
             }

@@ -58,6 +58,7 @@ class StateManager:
             'start_balance': None,  # 将在第一次运行时设置
             'last_decision': None,
             'performance_history': [],
+            'position_exit_plans': {},  # 存储每个持仓的exit_plan {symbol: exit_plan}
             'metadata': {
                 'version': '0.1.0',
                 'created_at': datetime.now().isoformat()
@@ -169,6 +170,70 @@ class StateManager:
             'invocation_count': self.get_invocation_count(),
             'total_trades': self.state.get('total_trades', 0)
         }
+    
+    def save_position_exit_plan(self, symbol: str, exit_plan: Dict[str, Any]):
+        """
+        保存持仓的exit_plan
+        
+        Args:
+            symbol: 交易对符号（如BTCUSDT）
+            exit_plan: 退出计划字典，包含profit_target, stop_loss, invalidation_condition等
+        """
+        if 'position_exit_plans' not in self.state:
+            self.state['position_exit_plans'] = {}
+        
+        self.state['position_exit_plans'][symbol] = {
+            'profit_target': exit_plan.get('profit_target'),
+            'stop_loss': exit_plan.get('stop_loss'),
+            'invalidation_condition': exit_plan.get('invalidation_condition'),
+            'leverage': exit_plan.get('leverage'),
+            'confidence': exit_plan.get('confidence'),
+            'risk_usd': exit_plan.get('risk_usd'),
+            'created_at': datetime.now().isoformat()
+        }
+        
+        logger.info(f"保存 {symbol} 的exit_plan: 止盈={exit_plan.get('profit_target')}, 止损={exit_plan.get('stop_loss')}")
+    
+    def get_position_exit_plan(self, symbol: str) -> Dict[str, Any]:
+        """
+        获取持仓的exit_plan
+        
+        Args:
+            symbol: 交易对符号（如BTCUSDT）
+            
+        Returns:
+            exit_plan字典，如果不存在则返回None
+        """
+        if 'position_exit_plans' not in self.state:
+            self.state['position_exit_plans'] = {}
+        
+        return self.state['position_exit_plans'].get(symbol)
+    
+    def remove_position_exit_plan(self, symbol: str):
+        """
+        移除持仓的exit_plan（平仓后调用）
+        
+        Args:
+            symbol: 交易对符号（如BTCUSDT）
+        """
+        if 'position_exit_plans' not in self.state:
+            return
+        
+        if symbol in self.state['position_exit_plans']:
+            del self.state['position_exit_plans'][symbol]
+            logger.info(f"移除 {symbol} 的exit_plan")
+    
+    def get_all_exit_plans(self) -> Dict[str, Dict[str, Any]]:
+        """
+        获取所有持仓的exit_plan
+        
+        Returns:
+            所有exit_plan的字典 {symbol: exit_plan}
+        """
+        if 'position_exit_plans' not in self.state:
+            self.state['position_exit_plans'] = {}
+        
+        return self.state['position_exit_plans']
 
 
 def create_state_manager() -> StateManager:

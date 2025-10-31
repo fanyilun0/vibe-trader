@@ -104,6 +104,10 @@ class BinanceAdapter(ExecutionInterface):
                 liquidation_price = pos.get('liquidation_price', 0)
                 symbol = pos.get('symbol')
                 
+                # 记录API返回的原始清算价格（用于调试）
+                api_liquidation_price = liquidation_price
+                logger.debug(f"API返回的清算价格: {symbol} = ${api_liquidation_price:.2f}")
+                
                 # 如果标记价格为0，尝试获取最新市场价格
                 if mark_price == 0 and symbol:
                     try:
@@ -113,17 +117,39 @@ class BinanceAdapter(ExecutionInterface):
                     except Exception as e:
                         logger.warning(f"无法获取{symbol}的标记价格: {e}")
                 
-                # 如果清算价格为0或不可用，手动计算（常见于testnet或某些API响应）
-                # 清算价格计算公式：
-                # 多仓：清算价 = 入场价 * (1 - 0.9 / 杠杆)
-                # 空仓：清算价 = 入场价 * (1 + 0.9 / 杠杆)
-                # 注意：0.9是近似安全系数（实际是1 - 维持保证金率 - 手续费等）
-                if liquidation_price == 0 and entry_price > 0 and leverage > 0:
+                # 如果API返回的清算价格为0，使用全仓模式公式计算
+                if liquidation_price == 0 and entry_price > 0:
+                    logger.info(f"{symbol} API未返回清算价格，使用全仓模式公式计算")
+                    
+                    # 获取账户总保证金余额和维持保证金
+                    margin_balance = account_data.get('total_margin_balance', 0)  # 保证金余额
+                    total_maint_margin = account_data.get('total_maintenance_margin', 0)  # 维持保证金
+                    
+                    # 计算当前持仓的维持保证金（从其他持仓数据计算）
+                    current_position_maint_margin = 0
+                    for p in positions:
+                        if p.get('symbol') == symbol:
+                            # 维持保证金 = 名义价值 * 维持保证金率
+                            # 对于BTCUSDT，维持保证金率约为0.4%（根据持仓大小）
+                            notional = abs(p.get('position_amt', 0)) * entry_price
+                            maint_margin_rate = 0.004  # 0.4%，这是简化值，实际会根据持仓大小变化
+                            current_position_maint_margin = notional * maint_margin_rate
+                            break
+                    
+                    # 全仓模式清算价格计算公式：
+                    # 多头: 清算价 = 开仓价 - (保证金余额 - 维持保证金) / 持仓数量
+                    # 空头: 清算价 = 开仓价 + (保证金余额 - 维持保证金) / 持仓数量
+                    available_margin = margin_balance - total_maint_margin
+                    
                     if position_amt > 0:  # 多仓
-                        liquidation_price = entry_price * (1 - 0.9 / leverage)
+                        liquidation_price = entry_price - (available_margin / abs(position_amt))
                     elif position_amt < 0:  # 空仓
-                        liquidation_price = entry_price * (1 + 0.9 / leverage)
-                    logger.debug(f"手动计算清算价格: {symbol} = ${liquidation_price:.2f} (leverage={leverage}x)")
+                        liquidation_price = entry_price + (available_margin / abs(position_amt))
+                    
+                    logger.info(f"   计算参数: 保证金余额=${margin_balance:.2f}, 维持保证金=${total_maint_margin:.2f}")
+                    logger.info(f"   可用保证金=${available_margin:.2f}, 持仓数量={abs(position_amt):.6f}")
+                    logger.info(f"   计算得到清算价格: ${liquidation_price:.2f}")
+                    logger.warning(f"   注意: 全仓模式下清算价格是动态的，会随账户余额和其他持仓变化")
                 
                 # 如果 API 返回的未实现盈亏为 0，手动计算
                 # （某些情况下 Binance testnet 不返回正确的盈亏值）

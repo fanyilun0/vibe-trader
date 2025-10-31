@@ -223,15 +223,17 @@ class VibeTrader:
                 'list_of_position_dictionaries': account_state['positions']
             }
             
-            # 步骤 3: 获取全局状态
+            # 步骤 3: 获取全局状态和exit_plans
             global_state = self.state_manager.get_global_state()
+            exit_plans = self.state_manager.get_all_exit_plans()
             
             # 步骤 4: AI 决策（多币种）
             self.logger.info("\n[步骤 3/6] AI 决策生成...")
             decisions = self.ai_core.make_decisions_multi(
                 market_features_by_coin,
                 account_features,
-                global_state
+                global_state,
+                exit_plans
             )
             
             self.logger.info(f"\nAI 决策结果 ({len(decisions)} 个币种):")
@@ -258,12 +260,32 @@ class VibeTrader:
                 decision = decisions[coin]
                 self.logger.info(f"\n💤 所有币种都为 HOLD，保持观望")
             
-            # 记录决策（记录所有币种的决策）
+            # 记录决策和exit_plan（记录所有币种的决策）
             for coin, d in decisions.items():
                 self.state_manager.record_decision({
                     **d.model_dump(),
                     'coin': coin
                 })
+                
+                # 保存或移除exit_plan
+                symbol = f"{coin}USDT"
+                if d.action in ['BUY', 'SELL'] and d.exit_plan:
+                    # 新开仓，保存exit_plan
+                    exit_plan_dict = {
+                        'profit_target': d.exit_plan.take_profit,
+                        'stop_loss': d.exit_plan.stop_loss,
+                        'invalidation_condition': d.exit_plan.invalidation_conditions,
+                        'leverage': d.leverage if d.leverage else 20,
+                        'confidence': d.confidence,
+                        'risk_usd': d.risk_usd if d.risk_usd else 0
+                    }
+                    self.state_manager.save_position_exit_plan(symbol, exit_plan_dict)
+                elif d.action == 'CLOSE_POSITION':
+                    # 平仓，移除exit_plan
+                    self.state_manager.remove_position_exit_plan(symbol)
+            
+            # 保存状态（确保exit_plan被持久化）
+            self.state_manager.save()
             
             # 步骤 5: 风险检查
             self.logger.info("\n[步骤 4/6] 风险管理检查...")
