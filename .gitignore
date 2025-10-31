@@ -6,8 +6,15 @@ __pycache__/
 # C extensions
 *.so
 
+# DS Store
+.DS_Store
+
+state.json
+state.json.backup
+
 # AI Prompts (generated files)
 prompts/
+responses/
 *.prompt.txt
 
 # Distribution / packaging
@@ -218,9 +225,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# DS Store
-.DS_Store
-
-state.json
-state.json.backup

@@ -8,7 +8,10 @@ AI 决策核心 (AI Decision Core)
 """
 
 import json
+import os
 from typing import Dict, Any, Optional
+from datetime import datetime
+from pathlib import Path
 from pydantic import BaseModel, Field, validator
 import requests
 import logging
@@ -81,8 +84,81 @@ class AIDecisionCore:
         # 初始化提示词管理器
         self.prompt_manager = create_prompt_manager()
         
+        # 响应保存目录
+        self.responses_dir = Path("responses")
+        self.responses_dir.mkdir(exist_ok=True)
+        
         logger.info(f"AI决策核心初始化完成 (model={model})")
     
+    def save_response_to_file(self, llm_response: Dict[str, Any], invocation_count: Optional[int] = None) -> str:
+        """
+        保存LLM响应到本地文件
+        
+        Args:
+            llm_response: LLM的原始响应
+            invocation_count: 调用次数（用于文件名）
+            
+        Returns:
+            保存的文件路径
+        """
+        # 生成文件名
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        if invocation_count is not None:
+            filename = f"response_{timestamp}_inv{invocation_count}.txt"
+        else:
+            filename = f"response_{timestamp}.txt"
+        
+        filepath = self.responses_dir / filename
+        
+        try:
+            # 提取响应内容
+            content = llm_response.get('choices', [{}])[0].get('message', {}).get('content', '')
+            
+            # 构建完整的响应信息
+            response_text = "=" * 80 + "\n"
+            response_text += f"DeepSeek API Response\n"
+            response_text += f"Timestamp: {timestamp}\n"
+            if invocation_count is not None:
+                response_text += f"Invocation: {invocation_count}\n"
+            response_text += "=" * 80 + "\n\n"
+            
+            # Token使用信息
+            if 'usage' in llm_response:
+                usage = llm_response['usage']
+                response_text += "Token Usage:\n"
+                response_text += f"  Prompt Tokens: {usage.get('prompt_tokens', 0)}\n"
+                response_text += f"  Completion Tokens: {usage.get('completion_tokens', 0)}\n"
+                response_text += f"  Total Tokens: {usage.get('total_tokens', 0)}\n"
+                response_text += "\n"
+            
+            # 原始完整响应（JSON格式）
+            response_text += "-" * 80 + "\n"
+            response_text += "Raw Response (JSON):\n"
+            response_text += "-" * 80 + "\n"
+            response_text += json.dumps(llm_response, indent=2, ensure_ascii=False) + "\n\n"
+            
+            # 提取的决策内容（如果是JSON）
+            response_text += "-" * 80 + "\n"
+            response_text += "Parsed Decision Content:\n"
+            response_text += "-" * 80 + "\n"
+            try:
+                # 尝试解析JSON
+                decisions = json.loads(content)
+                response_text += json.dumps(decisions, indent=2, ensure_ascii=False) + "\n"
+            except json.JSONDecodeError:
+                # 如果不是JSON，直接保存内容
+                response_text += content + "\n"
+            
+            # 写入文件
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(response_text)
+            
+            logger.info(f"✅ 响应已保存到: {filepath}")
+            return str(filepath)
+            
+        except Exception as e:
+            logger.error(f"保存响应失败: {e}")
+            return ""
     
     def call_llm(
         self,
@@ -163,6 +239,13 @@ class AIDecisionCore:
                           f"total={usage.get('total_tokens', 0)}")
             
             logger.debug(f"LLM响应: {json.dumps(result, indent=2, ensure_ascii=False)}")
+            
+            # 保存响应到文件
+            try:
+                invocation_count = global_state.get('invocation_count', None)
+                self.save_response_to_file(result, invocation_count)
+            except Exception as e:
+                logger.warning(f"保存响应文件失败: {e}")
             
             return result
             
@@ -254,37 +337,91 @@ class AIDecisionCore:
         self,
         market_features: Dict[str, Any],
         account_features: Dict[str, Any],
-        global_state: Dict[str, Any]
+        global_state: Dict[str, Any],
+        target_coin: Optional[str] = None
     ) -> TradingDecision:
         """
         生成交易决策 (完整流程)
         
         Args:
-            market_features: 单个币种的市场特征（保持向后兼容）
+            market_features: 单个币种的市场特征（保持向后兼容）或多币种特征字典
             account_features: 账户特征
             global_state: 全局状态
+            target_coin: 目标币种（用于多币种模式）
             
         Returns:
             验证后的交易决策
         """
         logger.info("开始生成交易决策")
         
-        # 将单币种市场特征转换为多币种格式
-        symbol = market_features.get('symbol', 'BTC')
-        # 提取币种符号（去除USDT后缀）
-        coin_symbol = symbol.replace('USDT', '')
-        
-        market_features_by_coin = {
-            coin_symbol: market_features
-        }
+        # 判断是单币种还是多币种格式
+        # 如果包含'symbol'键，说明是单币种格式
+        if 'symbol' in market_features:
+            # 单币种格式（向后兼容）
+            symbol = market_features.get('symbol', 'BTC')
+            # 提取币种符号（去除USDT后缀）
+            coin_symbol = symbol.replace('USDT', '')
+            
+            market_features_by_coin = {
+                coin_symbol: market_features
+            }
+            target_coin = coin_symbol
+        else:
+            # 多币种格式
+            market_features_by_coin = market_features
+            # 如果没有指定目标币种，使用第一个
+            if not target_coin:
+                target_coin = list(market_features_by_coin.keys())[0]
         
         # 调用LLM
         llm_response = self.call_llm(market_features_by_coin, account_features, global_state)
         
         # 解析和验证（传入目标币种）
-        decision = self.parse_and_validate_decision(llm_response, coin_symbol)
+        decision = self.parse_and_validate_decision(llm_response, target_coin)
         
         return decision
+    
+    def make_decisions_multi(
+        self,
+        market_features_by_coin: Dict[str, Dict[str, Any]],
+        account_features: Dict[str, Any],
+        global_state: Dict[str, Any]
+    ) -> Dict[str, TradingDecision]:
+        """
+        生成多个币种的交易决策
+        
+        Args:
+            market_features_by_coin: 按币种组织的市场特征
+            account_features: 账户特征
+            global_state: 全局状态
+            
+        Returns:
+            币种符号 -> 交易决策的字典
+        """
+        logger.info(f"开始生成 {len(market_features_by_coin)} 个币种的交易决策")
+        
+        # 调用LLM（一次调用处理所有币种）
+        llm_response = self.call_llm(market_features_by_coin, account_features, global_state)
+        
+        # 为每个币种解析决策
+        decisions = {}
+        for coin_symbol in market_features_by_coin.keys():
+            try:
+                decision = self.parse_and_validate_decision(llm_response, coin_symbol)
+                decisions[coin_symbol] = decision
+            except Exception as e:
+                logger.error(f"解析 {coin_symbol} 决策失败: {e}")
+                # 返回默认HOLD决策
+                decisions[coin_symbol] = TradingDecision(
+                    rationale=f"解析失败: {e}",
+                    confidence=0.0,
+                    action="HOLD",
+                    symbol=None,
+                    quantity_pct=None,
+                    exit_plan=None
+                )
+        
+        return decisions
 
 
 def create_ai_decision_core() -> AIDecisionCore:

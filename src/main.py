@@ -140,24 +140,40 @@ class VibeTrader:
             invocation_count = self.state_manager.increment_invocation()
             self.logger.info(f"第 {invocation_count} 次调用")
             
-            # 步骤 1: 数据摄取
+            # 步骤 1: 数据摄取（多币种）
             self.logger.info("\n[步骤 1/6] 数据摄取...")
-            symbol = self.symbols[0]  # 目前仅支持单个交易对
+            market_features_by_coin = {}
             
-            # 获取市场数据（只读模式：仅获取市场交易数据）
-            raw_market_data = self.data_client.get_all_market_data(
-                symbol=symbol,
-                short_interval=Config.trading.SHORT_TERM_TIMEFRAME,
-                long_interval=Config.trading.LONG_TERM_TIMEFRAME,
-                short_limit=Config.trading.SHORT_TERM_LIMIT,
-                long_limit=Config.trading.LONG_TERM_LIMIT
-            )
+            for symbol in self.symbols:
+                self.logger.info(f"  获取 {symbol} 数据...")
+                try:
+                    # 获取市场数据（只读模式：仅获取市场交易数据）
+                    raw_market_data = self.data_client.get_all_market_data(
+                        symbol=symbol,
+                        short_interval=Config.trading.SHORT_TERM_TIMEFRAME,
+                        long_interval=Config.trading.LONG_TERM_TIMEFRAME,
+                        short_limit=Config.trading.SHORT_TERM_LIMIT,
+                        long_limit=Config.trading.LONG_TERM_LIMIT
+                    )
+                    
+                    # 步骤 2: 数据处理与特征工程
+                    market_features = self.data_processor.process_market_data(
+                        raw_market_data, symbol
+                    )
+                    
+                    # 提取币种符号（去除USDT后缀）
+                    coin_symbol = symbol.replace('USDT', '')
+                    market_features_by_coin[coin_symbol] = market_features
+                    
+                except Exception as e:
+                    self.logger.error(f"  处理 {symbol} 数据失败: {e}")
+                    continue
             
-            # 步骤 2: 数据处理与特征工程
-            self.logger.info("\n[步骤 2/6] 数据处理与特征工程...")
-            market_features = self.data_processor.process_market_data(
-                raw_market_data, symbol
-            )
+            if not market_features_by_coin:
+                self.logger.error("所有币种数据获取失败，跳过本周期")
+                return
+            
+            self.logger.info(f"\n[步骤 2/6] 数据处理完成，成功处理 {len(market_features_by_coin)} 个币种")
             
             # 步骤 2.5: 获取账户状态 (通过执行管理器)
             self.logger.info("\n[步骤 2.5/6] 获取账户状态...")
@@ -210,31 +226,62 @@ class VibeTrader:
             # 步骤 3: 获取全局状态
             global_state = self.state_manager.get_global_state()
             
-            # 步骤 4: AI 决策
+            # 步骤 4: AI 决策（多币种）
             self.logger.info("\n[步骤 3/6] AI 决策生成...")
-            decision = self.ai_core.make_decision(
-                market_features,
+            decisions = self.ai_core.make_decisions_multi(
+                market_features_by_coin,
                 account_features,
                 global_state
             )
             
-            self.logger.info(f"\nAI 决策结果:")
-            self.logger.info(f"  操作: {decision.action}")
-            self.logger.info(f"  交易对: {decision.symbol}")
-            self.logger.info(f"  置信度: {decision.confidence:.2f}")
-            self.logger.info(f"  理由: {decision.rationale}")
+            self.logger.info(f"\nAI 决策结果 ({len(decisions)} 个币种):")
+            for coin, decision in decisions.items():
+                self.logger.info(f"  [{coin}]")
+                self.logger.info(f"    操作: {decision.action}")
+                self.logger.info(f"    交易对: {decision.symbol}")
+                self.logger.info(f"    置信度: {decision.confidence:.2f}")
+                self.logger.info(f"    理由: {decision.rationale[:100]}..." if len(decision.rationale) > 100 else f"    理由: {decision.rationale}")
             
-            # 记录决策
-            self.state_manager.record_decision(decision.model_dump())
+            # 选择最高置信度的非HOLD决策执行
+            # 如果都是HOLD，则选第一个
+            decision = None
+            non_hold_decisions = [(coin, d) for coin, d in decisions.items() if d.action != 'HOLD']
+            
+            if non_hold_decisions:
+                # 按置信度排序，选最高的
+                non_hold_decisions.sort(key=lambda x: x[1].confidence, reverse=True)
+                coin, decision = non_hold_decisions[0]
+                self.logger.info(f"\n✨ 选择执行: {coin} ({decision.action}, 置信度={decision.confidence:.2f})")
+            else:
+                # 都是HOLD，选第一个
+                coin = list(decisions.keys())[0]
+                decision = decisions[coin]
+                self.logger.info(f"\n💤 所有币种都为 HOLD，保持观望")
+            
+            # 记录决策（记录所有币种的决策）
+            for coin, d in decisions.items():
+                self.state_manager.record_decision({
+                    **d.model_dump(),
+                    'coin': coin
+                })
             
             # 步骤 5: 风险检查
             self.logger.info("\n[步骤 4/6] 风险管理检查...")
+            
+            # 获取当前决策币种的价格
+            if decision.symbol:
+                coin_symbol = decision.symbol.replace('USDT', '')
+                current_price = market_features_by_coin[coin_symbol]['current_price']
+            else:
+                # HOLD 决策，使用第一个币种的价格
+                first_coin = list(market_features_by_coin.keys())[0]
+                current_price = market_features_by_coin[first_coin]['current_price']
             
             passed, reason = self.risk_manager.validate_decision(
                 decision,
                 account_value=account_features['account_value'],
                 current_positions=len(account_features['list_of_position_dictionaries']),
-                current_price=market_features['current_price']
+                current_price=current_price
             )
             
             if not passed:
@@ -266,8 +313,7 @@ class VibeTrader:
                 
                 # 执行订单 (通过执行管理器)
                 try:
-                    # 获取当前价格用于执行
-                    current_price = market_features['current_price']
+                    # current_price 已经在风险检查部分获取了，直接使用
                     
                     # 调用执行管理器
                     execution_result = self.execution_manager.execute_decision(decision, current_price)
@@ -294,8 +340,12 @@ class VibeTrader:
             
             # 步骤 7: 记录周期信息
             self.logger.info("\n[步骤 6/6] 周期总结...")
-            self.logger.info(f"当前市场价格: ${market_features.get('current_price', 0):,.2f}")
-            self.logger.info(f"市场趋势: EMA20={market_features.get('current_ema20', 0):.2f}, RSI={market_features.get('current_rsi_7', 0):.2f}")
+            
+            # 显示所有币种的市场状态
+            for coin_symbol, features in market_features_by_coin.items():
+                self.logger.info(f"[{coin_symbol}] 价格: ${features.get('current_price', 0):,.2f}, "
+                               f"EMA20={features.get('current_ema20', 0):.2f}, "
+                               f"RSI={features.get('current_rsi_7', 0):.2f}")
             
             # 显示最终账户状态（如果刚执行过交易，显示更新后的状态）
             if decision.action != 'HOLD':

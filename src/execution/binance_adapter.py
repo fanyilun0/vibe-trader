@@ -113,6 +113,18 @@ class BinanceAdapter(ExecutionInterface):
                     except Exception as e:
                         logger.warning(f"无法获取{symbol}的标记价格: {e}")
                 
+                # 如果清算价格为0或不可用，手动计算（常见于testnet或某些API响应）
+                # 清算价格计算公式：
+                # 多仓：清算价 = 入场价 * (1 - 0.9 / 杠杆)
+                # 空仓：清算价 = 入场价 * (1 + 0.9 / 杠杆)
+                # 注意：0.9是近似安全系数（实际是1 - 维持保证金率 - 手续费等）
+                if liquidation_price == 0 and entry_price > 0 and leverage > 0:
+                    if position_amt > 0:  # 多仓
+                        liquidation_price = entry_price * (1 - 0.9 / leverage)
+                    elif position_amt < 0:  # 空仓
+                        liquidation_price = entry_price * (1 + 0.9 / leverage)
+                    logger.debug(f"手动计算清算价格: {symbol} = ${liquidation_price:.2f} (leverage={leverage}x)")
+                
                 # 如果 API 返回的未实现盈亏为 0，手动计算
                 # （某些情况下 Binance testnet 不返回正确的盈亏值）
                 if unrealized_profit == 0 and entry_price > 0 and mark_price > 0:

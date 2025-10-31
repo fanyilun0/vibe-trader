@@ -111,7 +111,7 @@ class TradingConfig:
     """交易配置"""
     
     # 交易对列表
-    SYMBOLS: List[str] = ['BTCUSDT']
+    SYMBOLS: List[str] = ['BTCUSDT', 'ETHUSDT']
     
     # 数据采集时间框架
     SHORT_TERM_TIMEFRAME = '3m'  # 短期时间框架 (3分钟)
