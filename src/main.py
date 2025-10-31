@@ -35,12 +35,21 @@ from src.state_manager import create_state_manager
 
 # 配置日志
 def setup_logging():
-    """设置日志系统"""
+    """设置日志系统，按时间戳创建不同的日志文件"""
     log_level = Config.logging.LEVEL
-    log_file = Config.logging.LOG_FILE
+    base_log_file = Config.logging.LOG_FILE
+    
+    # 生成带时间戳的日志文件名
+    log_dir = os.path.dirname(base_log_file)
+    log_filename = os.path.basename(base_log_file)
+    log_name, log_ext = os.path.splitext(log_filename)
+    
+    # 生成时间戳
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamped_log_file = os.path.join(log_dir, f"{log_name}_{timestamp}{log_ext}")
     
     # 确保日志目录存在
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
     
     # 配置日志格式
     log_format = Config.logging.FORMAT
@@ -50,7 +59,7 @@ def setup_logging():
         level=getattr(logging, log_level),
         format=log_format,
         handlers=[
-            logging.FileHandler(log_file),
+            logging.FileHandler(timestamped_log_file, encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
         ]
     )
@@ -58,6 +67,7 @@ def setup_logging():
     logger = logging.getLogger(__name__)
     logger.info("=" * 80)
     logger.info("Vibe Trader 启动")
+    logger.info(f"日志文件: {timestamped_log_file}")
     logger.info("=" * 80)
     
     return logger
@@ -215,7 +225,7 @@ class VibeTrader:
             self.logger.info(f"  理由: {decision.rationale}")
             
             # 记录决策
-            self.state_manager.record_decision(decision.dict())
+            self.state_manager.record_decision(decision.model_dump())
             
             # 步骤 5: 风险检查
             self.logger.info("\n[步骤 4/6] 风险管理检查...")
