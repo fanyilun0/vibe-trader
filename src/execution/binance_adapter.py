@@ -75,9 +75,11 @@ class BinanceAdapter(ExecutionInterface):
         self._cache_timestamp = current_time
         
         # 记录初始余额（仅首次）
+        # 说明：使用 total_wallet_balance（钱包余额）作为初始余额，
+        #      这是账户的本金，不含未实现盈亏，用于计算总收益率
         if self._initial_balance is None:
             self._initial_balance = self._account_data_cache.get('total_wallet_balance', 0.0)
-            logger.info(f"记录初始余额: ${self._initial_balance:,.2f}")
+            logger.info(f"记录初始余额(钱包余额，不含未实现盈亏): ${self._initial_balance:,.2f}")
         
         return self._account_data_cache
     
@@ -254,17 +256,30 @@ class BinanceAdapter(ExecutionInterface):
         return 0.15, 5016300
     
     def get_account_balance(self) -> Dict[str, float]:
-        """获取账户余额"""
+        """
+        获取账户余额信息
+        
+        Returns:
+            包含以下字段的字典：
+            - available_balance: 可用余额（可用于开新仓的余额，扣除已占用保证金）
+            - total_balance: 钱包余额（初始本金，不含未实现盈亏）
+            - total_equity: 账户总权益（钱包余额 + 未实现盈亏）
+            - unrealized_pnl: 未实现盈亏（所有持仓的浮动盈亏）
+            
+        说明：
+            当有持仓时，available_balance 会显著小于 total_equity，
+            因为持仓占用了保证金。这是正常现象。
+        """
         logger.debug("获取币安账户余额")
         
         try:
             account_data = self._get_cached_account_data()
             
             return {
-                'available_balance': account_data.get('available_balance', 0.0),
-                'total_balance': account_data.get('total_wallet_balance', 0.0),
-                'total_equity': account_data.get('total_margin_balance', 0.0),
-                'unrealized_pnl': account_data.get('total_unrealized_profit', 0.0)
+                'available_balance': account_data.get('available_balance', 0.0),  # 可用余额（扣除已占用保证金）
+                'total_balance': account_data.get('total_wallet_balance', 0.0),   # 钱包余额（初始本金）
+                'total_equity': account_data.get('total_margin_balance', 0.0),    # 账户总权益（本金+盈亏）
+                'unrealized_pnl': account_data.get('total_unrealized_profit', 0.0) # 未实现盈亏
             }
             
         except Exception as e:

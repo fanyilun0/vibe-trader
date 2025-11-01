@@ -319,13 +319,17 @@ class AIDecisionCore:
             action = action_mapping.get(signal, 'HOLD')
             
             # 构建退出计划
+            # 注意：HOLD 时也可能需要补充/更新退出计划（针对已有持仓）
             exit_plan = None
-            if action in ['BUY', 'SELL']:
-                exit_plan = ExitPlan(
-                    take_profit=trade_signal_args.get('profit_target'),
-                    stop_loss=trade_signal_args.get('stop_loss'),
-                    invalidation_conditions=trade_signal_args.get('invalidation_condition', '')
-                )
+            if action in ['BUY', 'SELL', 'HOLD']:
+                # 检查是否提供了止损价格（必需字段）
+                stop_loss = trade_signal_args.get('stop_loss')
+                if stop_loss and stop_loss > 0:
+                    exit_plan = ExitPlan(
+                        take_profit=trade_signal_args.get('profit_target'),
+                        stop_loss=stop_loss,
+                        invalidation_conditions=trade_signal_args.get('invalidation_condition', '')
+                    )
             
             # 构建决策对象
             decision = TradingDecision(

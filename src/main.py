@@ -308,6 +308,10 @@ class VibeTrader:
                 
                 # 保存或移除exit_plan
                 symbol = f"{coin}USDT"
+                
+                # 检查该币种是否有持仓
+                has_position = any(pos.get('symbol') == symbol for pos in account_features['list_of_position_dictionaries'])
+                
                 if d.action in ['BUY', 'SELL'] and d.exit_plan:
                     # 新开仓，保存exit_plan
                     exit_plan_dict = {
@@ -319,6 +323,19 @@ class VibeTrader:
                         'risk_usd': d.risk_usd if d.risk_usd else 0
                     }
                     self.state_manager.save_position_exit_plan(symbol, exit_plan_dict)
+                elif d.action == 'HOLD' and d.exit_plan and has_position:
+                    # HOLD 时如果有持仓且提供了 exit_plan，则更新/补充 exit_plan
+                    # 这处理了 AI 为已有持仓补充退出计划的情况
+                    exit_plan_dict = {
+                        'profit_target': d.exit_plan.take_profit,
+                        'stop_loss': d.exit_plan.stop_loss,
+                        'invalidation_condition': d.exit_plan.invalidation_conditions,
+                        'leverage': d.leverage if d.leverage else 20,
+                        'confidence': d.confidence,
+                        'risk_usd': d.risk_usd if d.risk_usd else 0
+                    }
+                    self.state_manager.save_position_exit_plan(symbol, exit_plan_dict)
+                    self.logger.info(f"✅ 为 {symbol} 持仓更新退出计划: 止盈={d.exit_plan.take_profit}, 止损={d.exit_plan.stop_loss}")
                 elif d.action == 'CLOSE_POSITION':
                     # 平仓，移除exit_plan
                     self.state_manager.remove_position_exit_plan(symbol)

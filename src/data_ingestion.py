@@ -517,11 +517,39 @@ class BinanceDataIngestion:
                 }
             
             # 提取账户余额信息
+            # 
+            # 余额数据说明（币安期货账户）：
+            # 1. total_wallet_balance（钱包余额）：
+            #    - 账户的初始本金，不包含未实现盈亏
+            #    - 计算公式：充值总额 - 提现总额 + 已实现盈亏
+            #    - 用途：作为初始余额记录，用于计算总收益率
+            # 
+            # 2. total_margin_balance（保证金余额/账户总权益）：
+            #    - 账户的实际总权益，包含未实现盈亏
+            #    - 计算公式：total_wallet_balance + total_unrealized_profit
+            #    - 用途：反映账户当前的真实价值
+            # 
+            # 3. available_balance（可用余额）：
+            #    - 扣除已占用保证金后，可用于开新仓的余额
+            #    - 计算公式：total_margin_balance - 已占用保证金 - 维持保证金
+            #    - 说明：当有持仓时，此值会显著小于 total_margin_balance
+            #    - 用途：用于判断是否有足够余额开新仓
+            # 
+            # 4. total_unrealized_profit（未实现盈亏）：
+            #    - 所有持仓的未实现盈亏总和
+            #    - 计算公式：sum((标记价格 - 开仓价格) * 持仓数量)
+            #    - 用途：反映当前持仓的浮动盈亏
+            # 
+            # 5. total_maintenance_margin（维持保证金）：
+            #    - 维持所有持仓所需的最低保证金
+            #    - 说明：当 total_margin_balance < total_maintenance_margin 时会被强制平仓
+            #    - 用途：用于监控爆仓风险
+            #
             total_wallet_balance = float(account_info.get('totalWalletBalance', 0))
             total_margin_balance = float(account_info.get('totalMarginBalance', 0))
             available_balance = float(account_info.get('availableBalance', 0))
             total_unrealized_profit = float(account_info.get('totalUnrealizedProfit', 0))
-            total_maintenance_margin = float(account_info.get('totalMaintMargin', 0))  # 维持保证金
+            total_maintenance_margin = float(account_info.get('totalMaintMargin', 0))
             
             # 提取资产列表
             assets = []

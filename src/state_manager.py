@@ -149,8 +149,9 @@ class StateManager:
                 os.replace(self.state_file, backup_file)
             
             # 保存新状态
-            with open(self.state_file, 'w') as f:
-                json.dump(self.state, f, indent=2)
+            # 使用 ensure_ascii=False 避免中文显示为 Unicode 转义（如 \u672a）
+            with open(self.state_file, 'w', encoding='utf-8') as f:
+                json.dump(self.state, f, indent=2, ensure_ascii=False)
             
             logger.debug(f"状态已保存到 {self.state_file}")
             
