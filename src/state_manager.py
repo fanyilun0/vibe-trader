@@ -239,6 +239,61 @@ class StateManager:
             self.state['position_exit_plans'] = {}
         
         return self.state['position_exit_plans']
+    
+    def calculate_sharpe_ratio(self, min_data_points: int = 10) -> float:
+        """
+        计算夏普比率（基于历史收益率）
+        
+        夏普比率 = (平均收益率 - 无风险利率) / 收益率标准差
+        这里简化为: 平均收益率 / 收益率标准差
+        
+        Args:
+            min_data_points: 最少需要的数据点数量
+            
+        Returns:
+            年化夏普比率，如果数据不足则返回0.0
+        """
+        try:
+            performance_history = self.state.get('performance_history', [])
+            
+            if len(performance_history) <= min_data_points:
+                logger.debug(f"历史数据不足（{len(performance_history)} <= {min_data_points}），夏普比率设为0")
+                return 0.0
+            
+            # 提取收益率序列
+            returns = []
+            for i in range(1, len(performance_history)):
+                prev_value = performance_history[i-1]['metrics'].get('account_value', 0)
+                curr_value = performance_history[i]['metrics'].get('account_value', 0)
+                
+                if prev_value > 0:
+                    ret = (curr_value - prev_value) / prev_value
+                    returns.append(ret)
+            
+            if len(returns) < 2:
+                logger.debug("收益率数据不足，夏普比率设为0")
+                return 0.0
+            
+            # 计算夏普比率 = 平均收益率 / 收益率标准差
+            import numpy as np
+            mean_return = np.mean(returns)
+            std_return = np.std(returns)
+            
+            if std_return == 0:
+                logger.debug("收益率标准差为0，夏普比率设为0")
+                return 0.0
+            
+            # 年化夏普比率
+            # 假设每3分钟一次调用，一年约175200次 (365 * 24 * 60 / 3)
+            periods_per_year = 175200
+            sharpe_ratio = mean_return / std_return * np.sqrt(periods_per_year)
+            
+            logger.debug(f"夏普比率计算完成: {sharpe_ratio:.4f} (基于{len(returns)}个数据点)")
+            return sharpe_ratio
+            
+        except Exception as e:
+            logger.warning(f"计算夏普比率失败: {e}")
+            return 0.0
 
 
 def create_state_manager() -> StateManager:

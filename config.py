@@ -111,7 +111,7 @@ class TradingConfig:
     """交易配置"""
     
     # 交易对列表
-    SYMBOLS: List[str] = ['BTCUSDT', 'ETHUSDT']
+    SYMBOLS: List[str] = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT', 'BNBUSDT']
     
     # 数据采集时间框架
     SHORT_TERM_TIMEFRAME = '3m'  # 短期时间框架 (3分钟)
@@ -122,7 +122,7 @@ class TradingConfig:
     LONG_TERM_LIMIT = 100   # 长期K线数量
     
     # 调度间隔 (秒)
-    SCHEDULE_INTERVAL = 180  # 每3分钟执行一次
+    SCHEDULE_INTERVAL = 600  # 每10分钟执行一次
     
     @classmethod
     def get_timeframes(cls) -> Dict[str, str]:
@@ -173,7 +173,7 @@ class RiskManagementConfig:
     MIN_CONFIDENCE = 0.75  # 75%
     
     # 允许交易的币种白名单
-    ALLOWED_SYMBOLS: List[str] = ['BTCUSDT', 'ETHUSDT']
+    ALLOWED_SYMBOLS: List[str] = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT', 'BNBUSDT']
     
     # 最大价格滑点百分比
     MAX_PRICE_SLIPPAGE_PCT = 0.02  # 2%
@@ -196,7 +196,9 @@ class RiskManagementConfig:
 class LoggingConfig:
     """日志配置"""
     
-    LEVEL = 'INFO'
+    # 从环境变量读取日志级别，默认为INFO
+    # 可设置为: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
     LOG_FILE = str(PROJECT_ROOT / 'logs' / 'vibe_trader.log')
     MAX_BYTES = 10 * 1024 * 1024  # 10MB
     BACKUP_COUNT = 5

@@ -254,32 +254,8 @@ class VibeTrader:
                 
                 enriched_positions.append(enriched_pos)
             
-            # 计算夏普比率（简化版本：基于历史收益率）
-            # 从状态管理器获取历史业绩数据
-            sharpe_ratio = 0.0
-            try:
-                performance_history = self.state_manager.state.get('performance_history', [])
-                if len(performance_history) > 10:  # 至少需要10个数据点
-                    # 提取收益率序列
-                    returns = []
-                    for i in range(1, len(performance_history)):
-                        prev_value = performance_history[i-1]['metrics'].get('account_value', 0)
-                        curr_value = performance_history[i]['metrics'].get('account_value', 0)
-                        if prev_value > 0:
-                            ret = (curr_value - prev_value) / prev_value
-                            returns.append(ret)
-                    
-                    # 计算夏普比率 = 平均收益率 / 收益率标准差
-                    if len(returns) > 1:
-                        import numpy as np
-                        mean_return = np.mean(returns)
-                        std_return = np.std(returns)
-                        if std_return > 0:
-                            # 年化夏普比率（假设每3分钟一次，一年约175200次）
-                            sharpe_ratio = mean_return / std_return * np.sqrt(175200)
-            except Exception as e:
-                self.logger.warning(f"计算夏普比率失败: {e}")
-                sharpe_ratio = 0.0
+            # 计算夏普比率（从状态管理器获取）
+            sharpe_ratio = self.state_manager.calculate_sharpe_ratio()
             
             # 构建账户特征（用于AI决策提示词）
             account_features = {

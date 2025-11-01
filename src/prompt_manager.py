@@ -264,35 +264,32 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
                 current_price = pos.get('current_price') or pos.get('mark_price', 0)
                 liquidation_price = pos.get('liquidation_price', 0)
                 
-                # 获取持仓数量（可能为负数表示空头）
-                quantity = pos.get('quantity', 0)
-                position_amt = pos.get('position_amt', quantity)
-                
-                # 如果position_amt存在且不为0，使用它（保留正负号）
-                if position_amt != 0:
-                    quantity = position_amt
+                # 持仓数量（多头为正，空头为负）
+                quantity = pos.get('quantity')
+                side = pos.get('side', '').upper()
+                quantity = quantity if side == 'LONG' else 0-quantity
                 
                 # 构建详细的持仓字典（包含所有执行细节）
                 position_dict = {
-                    'symbol': symbol.replace('USDT', ''),  # 币种符号（不含USDT）
-                    'quantity': round(quantity, 2),  # 持仓数量（多头为正，空头为负）
-                    'entry_price': round(pos.get('entry_price', 0), 2),  # 入场价格
+                    'confidence': exit_plan.get('confidence', 0),  # 置信度
                     'current_price': round(current_price, 5),  # 当前价格
-                    'liquidation_price': round(liquidation_price, 2),  # 清算价格
-                    'unrealized_pnl': round(pos.get('unrealized_pnl', 0), 2),  # 未实现盈亏
-                    'leverage': pos.get('leverage', 1),  # 杠杆倍数
+                    'entry_oid': pos.get('entry_oid', -1),  # 入场订单ID
+                    'entry_price': round(pos.get('entry_price', 0), 2),  # 入场价格
                     'exit_plan': {
                         'profit_target': exit_plan.get('profit_target', 0),
                         'stop_loss': exit_plan.get('stop_loss', 0),
                         'invalidation_condition': exit_plan.get('invalidation_condition', '')
                     },
-                    'confidence': exit_plan.get('confidence', 0),  # 置信度
+                    'leverage': pos.get('leverage', 1),  # 杠杆倍数
+                    'liquidation_price': round(liquidation_price, 2),  # 清算价格
+                    'notional_usd': round(pos.get('notional_usd', 0), 2),  # 名义价值（美元）
+                    'quantity': quantity,  # 持仓数量（多头为正，空头为负）
                     'risk_usd': exit_plan.get('risk_usd', 0),  # 风险金额
                     'sl_oid': pos.get('sl_oid', -1),  # 止损订单ID
+                    'symbol': symbol.replace('USDT', ''),  # 币种符号（不含USDT）
                     'tp_oid': pos.get('tp_oid', -1),  # 止盈订单ID
+                    'unrealized_pnl': round(pos.get('unrealized_pnl', 0), 2),  # 未实现盈亏
                     'wait_for_fill': pos.get('wait_for_fill', False),  # 等待成交标志
-                    'entry_oid': pos.get('entry_oid', -1),  # 入场订单ID
-                    'notional_usd': round(pos.get('notional_usd', 0), 2)  # 名义价值（美元）
                 }
                 
                 # 格式化为单行字典字符串
@@ -300,7 +297,7 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
             
             # 如果有持仓缺少退出计划，添加特别提示
             if positions_without_exit_plan:
-                positions_text += f"\n⚠️ 注意：以下持仓缺少退出计划（profit_target 和 stop_loss 为0或未设置）：{', '.join(positions_without_exit_plan)}\n"
+                positions_text += f"注意：以下持仓缺少退出计划（profit_target 和 stop_loss 为0或未设置）：{', '.join(positions_without_exit_plan)}\n"
                 positions_text += "请在本次决策中为这些持仓补充合理的退出计划（包括 profit_target、stop_loss 和 invalidation_condition）。\n"
         else:
             positions_text = "\n\n无持仓\n"

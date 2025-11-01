@@ -152,6 +152,7 @@ class AIDecisionCore:
                 response_text += content + "\n"
 
             # 提取推理信息
+            response_text += "-" * 80 + "\n"
             reasoning_info = llm_response.get('choices', [{}])[0].get('message', {}).get('reasoning_content', '')
             response_text += "Reasoning Info:\n"
             response_text += "-" * 80 + "\n"
