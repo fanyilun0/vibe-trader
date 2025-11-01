@@ -46,6 +46,10 @@ class BinanceDataIngestion:
         self.timeout = timeout
         self.skip_connection_test = skip_connection_test
         
+        # 记录不可用的API（测试网限制）
+        self.unavailable_apis = set()
+        self._testnet_warning_shown = False
+        
         # 初始化币安客户端
         self.client = Client(api_key, api_secret, testnet=testnet)
         
@@ -249,8 +253,17 @@ class BinanceDataIngestion:
                         response_content = parts[1].strip()
                         # 如果响应内容为空，说明是空响应
                         if not response_content:
+                            # 记录API不可用
+                            api_name = str(func).split()[1] if len(str(func).split()) > 1 else 'unknown'
+                            self.unavailable_apis.add(api_name)
+                            
                             if allow_empty:
-                                logger.warning(f"API 返回空响应（测试网限制），返回空数据")
+                                # 只在第一次显示测试网限制警告
+                                if self.testnet and not self._testnet_warning_shown:
+                                    logger.warning("⚠️ 测试网限制：部分API（如持仓量、资金费率历史）返回空响应")
+                                    logger.warning("这是测试网的正常限制，不影响核心交易功能")
+                                    self._testnet_warning_shown = True
+                                logger.debug(f"API {api_name} 返回空响应，返回空数据")
                                 return [] if 'hist' in str(func) else {}
                             else:
                                 logger.warning(f"API 返回空响应 (尝试 {attempt + 1}/{max_retries})")
@@ -340,6 +353,11 @@ class BinanceDataIngestion:
         Returns:
             持仓量数据字典
         """
+        # 如果已知此API不可用，直接返回空数据
+        if 'futures_open_interest' in self.unavailable_apis:
+            logger.debug(f"跳过持仓量API（已知在测试网不可用）")
+            return {}
+        
         logger.debug(f"获取持仓量: {symbol}")
         
         def _get():
@@ -357,6 +375,8 @@ class BinanceDataIngestion:
         """
         获取历史持仓量数据
         
+        注意: 币安测试网不支持此API,会返回空响应。这是正常的测试网限制。
+        
         Args:
             symbol: 交易对符号
             period: 时间周期 (如 '5m', '15m', '30m', '1h', ...)
@@ -365,9 +385,16 @@ class BinanceDataIngestion:
         Returns:
             历史持仓量数据列表
         """
+        # 如果已知此API不可用，直接返回空列表
+        if 'futures_open_interest_hist' in self.unavailable_apis:
+            logger.debug(f"跳过历史持仓量API（已知在测试网不可用）")
+            return []
+        
         logger.debug(f"获取历史持仓量: {symbol} period={period} limit={limit}")
         
         def _get():
+            # 使用U本位合约的持仓量历史API
+            # 参考文档: https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/Open-Interest-Statistics
             return self.client.futures_open_interest_hist(
                 symbol=symbol,
                 period=period,
@@ -388,6 +415,11 @@ class BinanceDataIngestion:
         Returns:
             资金费率历史数据列表
         """
+        # 如果已知此API不可用，直接返回空列表
+        if 'futures_funding_rate' in self.unavailable_apis:
+            logger.debug(f"跳过资金费率API（已知在测试网不可用）")
+            return []
+        
         logger.debug(f"获取资金费率: {symbol} limit={limit}")
         
         def _get():

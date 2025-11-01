@@ -338,6 +338,25 @@ class DataProcessor:
         # 处理持仓信息
         positions = []
         for pos in account_data.get('positions', []):
+            # 获取清算价格（如果API返回为0则计算）
+            liquidation_price = pos.get('liquidation_price', 0)
+            
+            # 如果API返回的清算价格为0或无效，使用简化公式计算
+            if liquidation_price == 0 and pos['entry_price'] > 0 and pos['leverage'] > 0:
+                entry_price = pos['entry_price']
+                leverage = pos['leverage']
+                position_amt = pos['position_amt']
+                
+                # 判断持仓方向：正数为多头，负数为空头
+                if position_amt > 0:  # 多头
+                    # 多仓: 强平价 = 开仓价 * (1 - 0.9 / 杠杆)
+                    liquidation_price = entry_price * (1 - 0.9 / leverage)
+                elif position_amt < 0:  # 空头
+                    # 空仓: 强平价 = 开仓价 * (1 + 0.9 / 杠杆)
+                    liquidation_price = entry_price * (1 + 0.9 / leverage)
+                
+                logger.debug(f"计算 {pos['symbol']} 清算价格: {liquidation_price:.2f} (入场价={entry_price}, 杠杆={leverage}x)")
+            
             position_dict = {
                 'symbol': pos['symbol'],
                 'quantity': abs(pos['position_amt']),  # 转换为绝对值
@@ -345,7 +364,7 @@ class DataProcessor:
                 'entry_price': pos['entry_price'],
                 'current_price': pos['mark_price'],
                 'mark_price': pos['mark_price'],  # 添加mark_price字段
-                'liquidation_price': pos.get('liquidation_price', 0),  # 清算价格
+                'liquidation_price': liquidation_price,  # 清算价格（计算或API返回）
                 'unrealized_pnl': pos['unrealized_profit'],
                 'leverage': pos['leverage'],
                 'position_side': pos['position_side'],

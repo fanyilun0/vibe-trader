@@ -245,12 +245,19 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         
         # 格式化持仓信息为详细字典格式（与参考文件一致）
         positions_text = ""
+        positions_without_exit_plan = []  # 记录缺少退出计划的持仓
+        
         if positions:
             positions_text = "\n\n当前持仓及执行情况: \n\n"
             for pos in positions:
                 symbol = pos.get('symbol', 'N/A')
                 
                 exit_plan = exit_plans.get(symbol, {})
+                
+                # 检查是否缺少退出计划
+                has_exit_plan = bool(exit_plan and exit_plan.get('profit_target') and exit_plan.get('stop_loss'))
+                if not has_exit_plan:
+                    positions_without_exit_plan.append(symbol.replace('USDT', ''))
                 
                 # 获取当前价格和清算价格
                 # 尝试从多个字段获取当前价格
@@ -290,6 +297,11 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
                 
                 # 格式化为单行字典字符串
                 positions_text += f"{position_dict} \n"
+            
+            # 如果有持仓缺少退出计划，添加特别提示
+            if positions_without_exit_plan:
+                positions_text += f"\n⚠️ 注意：以下持仓缺少退出计划（profit_target 和 stop_loss 为0或未设置）：{', '.join(positions_without_exit_plan)}\n"
+                positions_text += "请在本次决策中为这些持仓补充合理的退出计划（包括 profit_target、stop_loss 和 invalidation_condition）。\n"
         else:
             positions_text = "\n\n无持仓\n"
         

@@ -102,6 +102,7 @@ class BinanceAdapter(ExecutionInterface):
                 unrealized_profit = pos.get('unrealized_profit', 0)
                 leverage = pos.get('leverage', 1)
                 symbol = pos.get('symbol')
+                liquidation_price = pos.get('liquidation_price', 0)
                 
                 # 如果标记价格为0，尝试获取最新市场价格
                 if mark_price == 0 and symbol:
@@ -142,6 +143,24 @@ class BinanceAdapter(ExecutionInterface):
                     # 盈亏平衡价 = 入场价 * (1 - 手续费率 * 2)
                     break_even_price = entry_price * (1 - fee_rate)
                 
+                # 如果API返回的清算价格为0，手动计算
+                # 参考: https://www.binance.com/zh-CN/support/faq/b3c689c1f50a44cabb3a84e663b81d93
+                if liquidation_price == 0 and entry_price > 0 and leverage > 0:
+                    # 获取维持保证金率（根据仓位大小）
+                    # 币安维持保证金率分层，这里使用简化计算
+                    # 对于小仓位（<50k USDT），维持保证金率约为0.4%
+                    maintenance_margin_rate = self._get_maintenance_margin_rate(notional_value)
+                    
+                    if position_amt > 0:  # 多仓
+                        # 清算价格 = 入场价格 * (1 - 初始保证金率 + 维持保证金率)
+                        # 初始保证金率 = 1 / 杠杆
+                        liquidation_price = entry_price * (1 - 1/leverage + maintenance_margin_rate)
+                    else:  # 空仓
+                        # 清算价格 = 入场价格 * (1 + 初始保证金率 - 维持保证金率)
+                        liquidation_price = entry_price * (1 + 1/leverage - maintenance_margin_rate)
+                    
+                    logger.debug(f"计算清算价格: {symbol} = ${liquidation_price:.2f} (杠杆={leverage}x, 维持保证金率={maintenance_margin_rate*100:.2f}%)")
+                
                 formatted_positions.append({
                     'symbol': symbol,
                     'side': 'LONG' if position_amt > 0 else 'SHORT',
@@ -149,6 +168,7 @@ class BinanceAdapter(ExecutionInterface):
                     'entry_price': entry_price,
                     'mark_price': mark_price,
                     'break_even_price': break_even_price,
+                    'liquidation_price': liquidation_price,  # 添加清算价格
                     'unrealized_pnl': unrealized_profit,
                     'roi_percent': roi_percent,
                     'leverage': leverage,
@@ -163,6 +183,32 @@ class BinanceAdapter(ExecutionInterface):
         except Exception as e:
             logger.error(f"获取持仓信息失败: {e}")
             return []
+    
+    def _get_maintenance_margin_rate(self, notional_value: float) -> float:
+        """
+        根据仓位名义价值获取维持保证金率
+        
+        参考币安USDT永续合约维持保证金率分层:
+        https://www.binance.com/zh-CN/support/faq/b3c689c1f50a44cabb3a84e663b81d93
+        
+        Args:
+            notional_value: 仓位名义价值（USDT）
+            
+        Returns:
+            维持保证金率（小数形式）
+        """
+        # 简化的维持保证金率分层（以BTC为例）
+        # 实际应用中应该根据具体交易对获取准确的分层
+        if notional_value <= 50000:
+            return 0.004  # 0.4%
+        elif notional_value <= 250000:
+            return 0.005  # 0.5%
+        elif notional_value <= 1000000:
+            return 0.01   # 1%
+        elif notional_value <= 10000000:
+            return 0.025  # 2.5%
+        else:
+            return 0.05   # 5%
     
     def get_account_balance(self) -> Dict[str, float]:
         """获取账户余额"""

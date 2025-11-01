@@ -54,6 +54,12 @@ def setup_logging():
     # 配置日志格式
     log_format = Config.logging.FORMAT
     
+    # 验证日志级别
+    valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+    if log_level not in valid_levels:
+        print(f"警告: 无效的日志级别 '{log_level}'，使用默认级别 INFO")
+        log_level = 'INFO'
+    
     # 创建根日志记录器
     logging.basicConfig(
         level=getattr(logging, log_level),
@@ -61,14 +67,20 @@ def setup_logging():
         handlers=[
             logging.FileHandler(timestamped_log_file, encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
-        ]
+        ],
+        force=True  # 强制重新配置，避免其他模块的配置影响
     )
     
     logger = logging.getLogger(__name__)
     logger.info("=" * 80)
     logger.info("Vibe Trader 启动")
+    logger.info(f"日志级别: {log_level}")
     logger.info(f"日志文件: {timestamped_log_file}")
     logger.info("=" * 80)
+    
+    # 如果是DEBUG级别，额外提示
+    if log_level == 'DEBUG':
+        logger.debug("🔍 DEBUG 模式已启用，将显示详细调试信息")
     
     return logger
 
@@ -178,10 +190,7 @@ class VibeTrader:
             # 步骤 2.5: 获取账户状态 (通过执行管理器)
             self.logger.info("\n[步骤 2.5/6] 获取账户状态...")
             
-            # 刷新账户状态（仅调用一次API）
-            self.execution_manager.refresh_account_state()
-            
-            # 获取完整账户状态（使用缓存数据）
+            # 获取完整账户状态（会自动刷新缓存，内部已避免重复调用API）
             account_state = self.execution_manager.get_account_state()
             
             self.logger.info(f"账户总权益: ${account_state['total_equity']:,.2f}")
@@ -200,6 +209,19 @@ class VibeTrader:
                     self.logger.info(f"      入场价格: ${pos['entry_price']:.2f}")
                     self.logger.info(f"      盈亏平衡: ${pos.get('break_even_price', 0):.2f}")
                     self.logger.info(f"      标记价格: ${pos.get('mark_price', 0):.2f}")
+                    # 显示清算价格（如果可用）
+                    liq_price = pos.get('liquidation_price', 0)
+                    if liq_price > 0:
+                        # 计算到清算价格的距离百分比
+                        current_price = pos.get('mark_price', 0)
+                        if current_price > 0:
+                            if pos['side'] == 'LONG':
+                                distance_pct = ((current_price - liq_price) / current_price) * 100
+                            else:  # SHORT
+                                distance_pct = ((liq_price - current_price) / current_price) * 100
+                            self.logger.info(f"      清算价格: ${liq_price:.2f} (距离: {distance_pct:.1f}%)")
+                        else:
+                            self.logger.info(f"      清算价格: ${liq_price:.2f}")
                     self.logger.info(f"      保证金:   ${pos.get('margin', 0):.2f} USDT")
                     self.logger.info(f"      盈亏:     {pnl_sign}${pos['unrealized_pnl']:.2f} ({roi_sign}{pos.get('roi_percent', 0):.2f}%)")
                     self.logger.info("")
@@ -409,10 +431,10 @@ class VibeTrader:
                                f"EMA20={features.get('current_ema20', 0):.2f}, "
                                f"RSI={features.get('current_rsi_7', 0):.2f}")
             
-            # 显示最终账户状态（如果刚执行过交易，显示更新后的状态）
-            if decision.action != 'HOLD':
-                try:
-                    # 如果执行了交易，刷新账户状态
+            # 记录性能数据
+            try:
+                # 如果执行了交易，需要刷新账户状态
+                if decision.action != 'HOLD':
                     self.execution_manager.refresh_account_state()
                     final_account_state = self.execution_manager.get_account_state()
                     
@@ -427,8 +449,29 @@ class VibeTrader:
                     # 显示持仓变化
                     if final_account_state['position_count'] > 0:
                         self.logger.info(f"   持仓数量: {final_account_state['position_count']}")
-                except Exception as e:
-                    self.logger.warning(f"获取最终账户状态失败: {e}")
+                    
+                    # 使用最新的账户状态记录性能
+                    performance_metrics = {
+                        'account_value': final_account_state['total_equity'],
+                        'available_balance': final_account_state['available_balance'],
+                        'unrealized_pnl': final_account_state['unrealized_pnl'],
+                        'position_count': final_account_state['position_count'],
+                        'total_return': ((final_account_state['total_equity'] - initial_balance) / initial_balance) if initial_balance > 0 else 0
+                    }
+                else:
+                    # 如果没有交易，使用当前账户状态记录性能
+                    performance_metrics = {
+                        'account_value': account_state['total_equity'],
+                        'available_balance': account_state['available_balance'],
+                        'unrealized_pnl': account_state['unrealized_pnl'],
+                        'position_count': account_state['position_count'],
+                        'total_return': ((account_state['total_equity'] - initial_balance) / initial_balance) if initial_balance > 0 else 0
+                    }
+                
+                self.state_manager.record_performance(performance_metrics)
+                
+            except Exception as e:
+                self.logger.warning(f"记录性能数据失败: {e}")
             
             # 保存状态
             self.state_manager.save()
