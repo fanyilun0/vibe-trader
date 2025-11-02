@@ -73,37 +73,43 @@ must not output any explanatory text, Markdown, or extra characters.
 ```json
 {
   "COIN": {
-    "trade_signal_args": {
-      "coin": "COIN",
-      "signal": "hold" | "close_position" | "buy_to_enter" | "sell_to_enter",
-      "quantity": <number>,                       // hold uses full current position; entry uses planned quantity
-      "profit_target": <number>,                  // required; reuse for hold; new for entry
-      "stop_loss": <number>,                      // required; reuse for hold; new for entry
-      "invalidation_condition": "<string>",       // required; e.g., “if 3-min close below/above X”
-      "leverage": <integer 5-40>,                 // required; reuse for hold; new for entry
-      "confidence": <number 0-1>,                 // required; reuse for hold; new for entry
-      "risk_usd": <number>,                       // required; reuse for hold; new for entry
-      "justification": "<string, required only for entry/close; omit for hold>"
-    }
+    "coin": "COIN",
+    "signal": "hold" | "close_position" | "buy_to_enter" | "sell_to_enter",
+    "quantity": <number>,
+    "profit_target": <number>,
+    "stop_loss": <number>,
+    "invalidation_condition": "<string>",
+    "leverage": <integer 5-40>,
+    "confidence": <number 0-1>,
+    "risk_usd": <number>,
+    "justification": "<string>"
   }
 }
 ```
 
-- **For each coin you take action on**, you must output an object:
-- If the account already has a position in that coin: it **must
-  appear** in the output, with signal only `hold` or `close_position`.
-- If no position and no clear advantage: you may omit that coin (no
-  action taken).
-- JSON must not contain NaN, Infinity, trailing commas, or undefined
-  fields; use decimal floats or integers.
+**Field Descriptions:**
+- `coin`: Coin symbol (e.g., "BTC", "ETH")
+- `signal`: Signal type - "hold" (hold position) / "close_position" (close) / "buy_to_enter" (long entry) / "sell_to_enter" (short entry)
+- `quantity`: Quantity - for hold/close use full current position; for entry use planned quantity
+- `profit_target`: Take-profit target price (required) - reuse for hold; new for entry
+- `stop_loss`: Stop-loss price (required) - reuse for hold; new for entry
+- `invalidation_condition`: Invalidation condition (required) - e.g., "If the price closes below/above X on a 3-minute candle"
+- `leverage`: Leverage multiplier (integer 5-40) - reuse for hold; new for entry
+- `confidence`: Confidence level (float 0-1) - reuse for hold; new for entry
+- `risk_usd`: Risk amount in USD - reuse for hold; new for entry
+- `justification`: Decision rationale - **required for entry/close (1-3 sentences); use empty string "" for hold**
 
-### Behavioral Rules
+**Output Rules:**
+- **For each coin you take action on**, you must output an object
+- If the account already has a position in that coin: it **must appear** in the output, with signal only `hold` or `close_position`
+- If no position and no clear advantage: you may omit that coin (no action taken)
+- JSON must not contain NaN, Infinity, trailing commas, or undefined fields; use decimal floats or integers
+- **For hold signals, justification must be an empty string "", do not omit this field**
 
-- Do not modify existing exit_plan targets/stops/invalidation unless
-  issuing a new entry or close signal.
-- If no invalidation triggered, output their `hold` and reuse provided
-  parameters.
-- Do not output future tasks, tips, or explanations; output **JSON
-  only**.
-- If you cannot form a clear conclusion for any coin, **omit it rather
-  than guess**.
+## Behavioral Rules
+
+- Do not modify existing exit_plan targets/stops/invalidation unless issuing a new entry or close signal.
+- If no invalidation triggered, output their `hold` and reuse provided parameters.
+- Do not output future tasks, tips, or explanations; output **JSON only**.
+- If you cannot form a clear conclusion for any coin, **omit it rather than guess**.
+

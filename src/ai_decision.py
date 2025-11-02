@@ -268,7 +268,7 @@ class AIDecisionCore:
     
     def parse_and_validate_decision(self, llm_response: Dict[str, Any], target_symbol: str) -> TradingDecision:
         """
-        解析和验证LLM响应（新格式：多币种JSON）
+        解析和验证LLM响应（扁平JSON格式）
         
         Args:
             llm_response: LLM的原始响应
@@ -284,7 +284,7 @@ class AIDecisionCore:
             # 提取响应内容
             content = llm_response['choices'][0]['message']['content']
             
-            # 解析JSON（新格式是多币种结构）
+            # 解析JSON（扁平格式：每个币种下直接包含所有字段）
             decisions_by_coin = json.loads(content)
             
             logger.debug(f"收到 {len(decisions_by_coin)} 个币种的决策")
@@ -294,11 +294,11 @@ class AIDecisionCore:
                 # 如果目标币种没有决策，抛出异常（让调用方决定如何处理）
                 raise ValueError(f"AI未对 {target_symbol} 给出决策")
             
+            # 直接从币种对象中获取字段（扁平结构）
             coin_decision = decisions_by_coin[target_symbol]
-            trade_signal_args = coin_decision.get('trade_signal_args', {})
             
             # 转换为 TradingDecision 格式
-            signal = trade_signal_args.get('signal', 'hold').upper()
+            signal = coin_decision.get('signal', 'hold').upper()
             
             # 映射信号类型
             action_mapping = {
@@ -315,24 +315,24 @@ class AIDecisionCore:
             exit_plan = None
             if action in ['BUY', 'SELL', 'HOLD']:
                 # 检查是否提供了止损价格（必需字段）
-                stop_loss = trade_signal_args.get('stop_loss')
+                stop_loss = coin_decision.get('stop_loss')
                 if stop_loss and stop_loss > 0:
                     exit_plan = ExitPlan(
-                        take_profit=trade_signal_args.get('profit_target'),
+                        take_profit=coin_decision.get('profit_target'),
                         stop_loss=stop_loss,
-                        invalidation_conditions=trade_signal_args.get('invalidation_condition', '')
+                        invalidation_conditions=coin_decision.get('invalidation_condition', '')
                     )
             
             # 构建决策对象
             decision = TradingDecision(
-                rationale=trade_signal_args.get('justification', '无理由'),
-                confidence=trade_signal_args.get('confidence', 0.5),
+                rationale=coin_decision.get('justification', '无理由'),
+                confidence=coin_decision.get('confidence', 0.5),
                 action=action,
                 symbol=f"{target_symbol}USDT" if action != 'HOLD' else None,
-                quantity_pct=trade_signal_args.get('risk_usd', 0) / 10000 if action in ['BUY', 'SELL'] else None,  # 简单估算
+                quantity_pct=coin_decision.get('risk_usd', 0) / 10000 if action in ['BUY', 'SELL'] else None,  # 简单估算
                 exit_plan=exit_plan,
-                leverage=trade_signal_args.get('leverage'),
-                risk_usd=trade_signal_args.get('risk_usd')
+                leverage=coin_decision.get('leverage'),
+                risk_usd=coin_decision.get('risk_usd')
             )
             
             logger.debug(f"✓ {target_symbol}: action={decision.action}, confidence={decision.confidence}")

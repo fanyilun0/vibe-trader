@@ -36,28 +36,40 @@
 ```json
 {
   "COIN": {
-    "trade_signal_args": {
-      "coin": "COIN",
-      "signal": "hold" | "close_position" | "buy_to_enter" | "sell_to_enter",
-      "quantity": <number>,                       // hold 用“当前完整仓位”；入场为计划张数
-      "profit_target": <number>,                  // 必填；hold 复用既有；入场需新给
-      "stop_loss": <number>,                      // 必填；hold 复用既有；入场需新给
-      "invalidation_condition": "<string>",       // 必填；如“若3分钟收盘价低于/高于X”
-      "leverage": <integer 5-40>,                 // 必填；hold 复用既有；入场需新给
-      "confidence": <number 0-1>,                 // 必填；hold 复用既有；入场需新给
-      "risk_usd": <number>,                       // 必填；hold 复用既有；入场需新给
-      "justification": "<string, 仅在入场/平仓时必填；hold不填>"
-    }
+    "coin": "COIN",
+    "signal": "hold" | "close_position" | "buy_to_enter" | "sell_to_enter",
+    "quantity": <number>,
+    "profit_target": <number>,
+    "stop_loss": <number>,
+    "invalidation_condition": "<string>",
+    "leverage": <integer 5-40>,
+    "confidence": <number 0-1>,
+    "risk_usd": <number>,
+    "justification": "<string>"
   }
 }
 ```
 
-- **对每一个“你采取了动作的币种”**都必须给出一个对象：
-- 若账户里该币已有仓位：必须在输出中出现，并且信号只能是 hold 或 close_position。
-- 若该币无仓位且无明确优势：可以不输出该币（或不对其采取动作）。
-- JSON 中不得出现 NaN、Infinity、多余逗号或未定义字段；数值请用十进制浮点或整数。
+**字段说明：**
+- `coin`: 币种符号（如 "BTC", "ETH"）
+- `signal`: 信号类型 - "hold"（持有）/ "close_position"（平仓）/ "buy_to_enter"（做多入场）/ "sell_to_enter"（做空入场）
+- `quantity`: 数量 - hold/close时用当前完整仓位；入场时为计划张数
+- `profit_target`: 止盈目标价格（必填）- hold时复用既有；入场时需新给
+- `stop_loss`: 止损价格（必填）- hold时复用既有；入场时需新给
+- `invalidation_condition`: 失效条件（必填）- 如"如果价格在3分钟K线上收于X以下/以上"
+- `leverage`: 杠杆倍数（5-40之间的整数）- hold时复用既有；入场时需新给
+- `confidence`: 置信度（0-1之间的浮点数）- hold时复用既有；入场时需新给
+- `risk_usd`: 风险金额（美元）- hold时复用既有；入场时需新给
+- `justification`: 决策理由 - **入场/平仓时必填（1-3句话）；hold时填空字符串""**
 
-行为细则
+**输出规则：**
+- **对每一个"你采取了动作的币种"**都必须给出一个对象
+- 若账户里该币已有仓位：必须在输出中出现，并且信号只能是 hold 或 close_position
+- 若该币无仓位且无明确优势：可以不输出该币（或不对其采取动作）
+- JSON 中不得出现 NaN、Infinity、多余逗号或未定义字段；数值请用十进制浮点或整数
+- **hold信号时，justification必须为空字符串""，不要省略该字段**
+
+## 行为细则
 
 - 不要修改已有 exit_plan 的目标/止损/失效条件，除非你发出的是入场（新建）或平仓（关闭）信号。
 - 若所有已有仓位均未被否定条件触发，输出它们的 hold，并复用持仓内提供的参数。
