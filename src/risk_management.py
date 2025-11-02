@@ -64,24 +64,14 @@ class RiskManager:
             logger.info("决策为HOLD,跳过风险检查")
             return True, "OK"
         
-        # 如果是CLOSE_POSITION,跳过置信度检查（平仓是风险控制，不是投机交易）
-        if decision.action == 'CLOSE_POSITION':
-            logger.info("决策为CLOSE_POSITION,跳过置信度检查（风险控制优先）")
-            # 继续执行其他检查
-        else:
-            # 检查1: 置信度阈值（仅对BUY/SELL）
-            if decision.confidence < self.min_confidence:
-                reason = f"置信度过低: {decision.confidence} < {self.min_confidence}"
-                logger.warning(f"❌ 风险检查失败: {reason}")
-                return False, reason
-        
-        # 检查2: 交易对白名单
-        if decision.symbol and decision.symbol not in self.allowed_symbols:
-            reason = f"交易对不在白名单中: {decision.symbol}"
+
+        # 检查1: 置信度阈值
+        if decision.confidence < self.min_confidence:
+            reason = f"置信度过低: {decision.confidence} < {self.min_confidence}"
             logger.warning(f"❌ 风险检查失败: {reason}")
             return False, reason
         
-        # 检查3: 订单规模 (仅对BUY/SELL)
+        # 检查2: 订单规模 (仅对BUY/SELL)
         if decision.action in ['BUY', 'SELL']:
             if decision.quantity_pct is None:
                 reason = "quantity_pct 未设置"
@@ -98,14 +88,14 @@ class RiskManager:
                 notional_value = decision.quantity_pct * account_value
                 logger.info(f"  订单名义价值: ${notional_value:,.2f}")
         
-        # 检查4: 最大持仓数量 (仅对BUY)
+        # 检查3: 最大持仓数量 (仅对BUY)
         if decision.action == 'BUY':
             if current_positions >= self.max_open_positions:
                 reason = f"已达最大持仓数: {current_positions} >= {self.max_open_positions}"
                 logger.warning(f"❌ 风险检查失败: {reason}")
                 return False, reason
         
-        # 检查5: 止损价格必须设置 (对BUY/SELL)
+        # 检查4: 止损价格必须设置 (对BUY/SELL)
         if decision.action in ['BUY', 'SELL']:
             if not decision.exit_plan or decision.exit_plan.stop_loss is None:
                 reason = "未设置止损价格"
@@ -124,7 +114,7 @@ class RiskManager:
                     logger.warning(f"❌ 风险检查失败: {reason}")
                     return False, reason
         
-        # 检查6: 失效条件必须设置
+        # 检查5: 失效条件必须设置
         if decision.action in ['BUY', 'SELL']:
             if not decision.exit_plan or not decision.exit_plan.invalidation_conditions:
                 reason = "未设置失效条件"

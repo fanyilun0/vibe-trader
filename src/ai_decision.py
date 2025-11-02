@@ -152,11 +152,15 @@ class AIDecisionCore:
                 response_text += content + "\n"
 
             # 提取推理信息
-            response_text += "-" * 80 + "\n"
-            reasoning_info = llm_response.get('choices', [{}])[0].get('message', {}).get('reasoning_content', '')
-            response_text += "Reasoning Info:\n"
-            response_text += "-" * 80 + "\n"
-            response_text += reasoning_info + "\n"
+            try:
+                if 'reasoning_content' in llm_response.get('choices', [{}])[0].get('message', {}):
+                    reasoning_info = llm_response.get('choices', [{}])[0].get('message', {}).get('reasoning_content', '')
+                    response_text += "Reasoning Info:\n"
+                    response_text += "-" * 80 + "\n"
+                    response_text += reasoning_info + "\n"
+            except Exception as e:
+                logger.warning(f"提取推理信息失败: {e}")
+                pass
             
             # 写入文件
             with open(filepath, 'w', encoding='utf-8') as f:

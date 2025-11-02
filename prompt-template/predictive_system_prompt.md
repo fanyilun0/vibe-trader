@@ -93,7 +93,7 @@ must not output any explanatory text, Markdown, or extra characters.
 - `quantity`: Quantity - for hold/close use full current position; for entry use planned quantity
 - `profit_target`: Take-profit target price (required) - reuse for hold; new for entry
 - `stop_loss`: Stop-loss price (required) - reuse for hold; new for entry
-- `invalidation_condition`: Invalidation condition (required) - e.g., "If the price closes below/above X on a 3-minute candle"
+- `invalidation_condition`: **Strategy invalidation condition** (required) - **Must be based on technical analysis with specific market structure levels**, e.g., "If price breaks below key support X (corresponding to 20-period EMA/previous low/trendline)" or "If price breaks above resistance Y (corresponding to 50-period EMA/previous high)". **Do NOT simply repeat the stop-loss price**; instead, must reflect your trading logic and technical analysis (e.g., MA breakdown, key support/resistance breach, trend reversal signals)
 - `leverage`: Leverage multiplier (integer 5-40) - reuse for hold; new for entry
 - `confidence`: Confidence level (float 0-1) - reuse for hold; new for entry
 - `risk_usd`: Risk amount in USD - reuse for hold; new for entry
@@ -112,4 +112,3 @@ must not output any explanatory text, Markdown, or extra characters.
 - If no invalidation triggered, output their `hold` and reuse provided parameters.
 - Do not output future tasks, tips, or explanations; output **JSON only**.
 - If you cannot form a clear conclusion for any coin, **omit it rather than guess**.
-
