@@ -73,20 +73,23 @@ class RiskManager:
         
         # 检查2: 订单规模 (仅对BUY/SELL)
         if decision.action in ['BUY', 'SELL']:
-            if decision.quantity_pct is None:
-                reason = "quantity_pct 未设置"
+            if decision.quantity is None or decision.quantity <= 0:
+                reason = "quantity 未设置或无效"
                 logger.warning(f"❌ 风险检查失败: {reason}")
                 return False, reason
             
-            if decision.quantity_pct > self.max_position_size_pct:
-                reason = f"订单规模过大: {decision.quantity_pct*100}% > {self.max_position_size_pct*100}%"
-                logger.warning(f"❌ 风险检查失败: {reason}")
-                return False, reason
-            
-            # 计算名义价值
+            # 计算名义价值和仓位百分比
             if current_price and account_value > 0:
-                notional_value = decision.quantity_pct * account_value
+                notional_value = decision.quantity * current_price
+                position_pct = notional_value / account_value
+                
                 logger.info(f"  订单名义价值: ${notional_value:,.2f}")
+                
+                # 检查是否超过最大仓位百分比
+                if position_pct > self.max_position_size_pct:
+                    reason = f"订单规模过大: {position_pct*100:.1f}% > {self.max_position_size_pct*100:.1f}%"
+                    logger.warning(f"❌ 风险检查失败: {reason}")
+                    return False, reason
         
         # 检查3: 最大持仓数量 (仅对BUY)
         if decision.action == 'BUY':
@@ -142,20 +145,14 @@ class RiskManager:
         Returns:
             调整后的决策
         """
-        if decision.action not in ['BUY', 'SELL'] or decision.quantity_pct is None:
+        # 注意：现在严格按照AI决策的数量执行，不再自动调整
+        # 风险检查在check_risk中完成，如果不通过会拒绝执行
+        if decision.action not in ['BUY', 'SELL'] or decision.quantity is None:
             return decision
         
-        original_pct = decision.quantity_pct
-        adjusted_pct = min(decision.quantity_pct, self.max_position_size_pct)
-        
-        # 如果提供了波动率,可以根据波动率动态调整
-        if volatility and volatility > 0.05:  # 高波动
-            adjusted_pct *= 0.8  # 减少20%仓位
-            logger.info(f"高波动环境,仓位缩减20%")
-        
-        if adjusted_pct != original_pct:
-            logger.warning(f"仓位已调整: {original_pct*100}% -> {adjusted_pct*100}%")
-            decision.quantity_pct = adjusted_pct
+        # 不再调整数量，直接返回原始决策
+        # 如果需要调整，应该在AI决策层面或通过风险检查拒绝执行
+        logger.debug(f"风险调整: 保持AI决策数量 {decision.quantity}")
         
         return decision
     

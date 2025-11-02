@@ -295,6 +295,9 @@ class BinanceAdapter(ExecutionInterface):
         """
         根据交易对精度格式化数量
         
+        注意：此方法仅用于开仓时计算新订单数量。
+        平仓时应直接使用API返回的原始持仓数量，以确保完全平仓。
+        
         Args:
             symbol: 交易对符号
             quantity: 原始数量
@@ -375,37 +378,33 @@ class BinanceAdapter(ExecutionInterface):
                     logger.error(f"平仓失败: {close_result.get('message')}")
                     return close_result
             
-            # 如果仓位百分比为0，只平仓不开仓
-            if decision.quantity_pct == 0:
+            # 直接使用AI决策中的数量，不再通过百分比计算
+            if decision.quantity is None or decision.quantity <= 0:
                 return {
-                    'status': 'SUCCESS',
-                    'action': 'CLOSE_ONLY',
-                    'message': '仅平仓，不开新仓'
+                    'status': 'FAILED',
+                    'action': decision.action,
+                    'message': 'AI决策中未提供有效的交易数量'
                 }
             
-            # 计算交易数量
-            account_data = self._get_cached_account_data()
-            available_balance = account_data.get('available_balance', 0.0)
+            # 使用AI决策的数量
+            quantity = decision.quantity
             
-            if available_balance <= 0:
-                raise ValueError("可用余额不足")
-            
-            # 获取交易对的杠杆倍数（从账户信息中获取或使用默认值）
-            leverage = 10  # 默认杠杆
-            
-            # 计算名义价值 = 可用余额 * 仓位百分比 * 杠杆
-            nominal_value = available_balance * decision.quantity_pct * leverage
-            quantity = nominal_value / current_price
-            
-            # 使用动态精度格式化数量
+            # 使用动态精度格式化数量（确保符合API要求）
             formatted_quantity = self._format_quantity(decision.symbol, quantity)
+            
+            # 计算名义价值（用于日志显示）
+            nominal_value = formatted_quantity * current_price
+            
+            # 获取杠杆（使用AI决策中的杠杆或默认值）
+            leverage = decision.leverage if decision.leverage else 10
             
             # 确定交易方向
             side = 'BUY' if decision.action == 'BUY' else 'SELL'
             
             logger.info(f"📊 订单详情:")
             logger.info(f"   方向: {side}")
-            logger.info(f"   数量: {formatted_quantity} {decision.symbol}")
+            logger.info(f"   AI决策数量: {quantity} {decision.symbol}")
+            logger.info(f"   格式化后数量: {formatted_quantity} {decision.symbol}")
             logger.info(f"   名义价值: ${nominal_value:.2f}")
             logger.info(f"   杠杆: {leverage}x")
             
@@ -437,7 +436,7 @@ class BinanceAdapter(ExecutionInterface):
                 'action': decision.action,
                 'symbol': decision.symbol,
                 'side': 'LONG' if side == 'BUY' else 'SHORT',
-                'quantity': quantity,
+                'quantity': formatted_quantity,  # 使用格式化后的实际执行数量
                 'entry_price': current_price,
                 'order_id': order_result.get('orderId'),
                 'position': current_position,
@@ -467,8 +466,10 @@ class BinanceAdapter(ExecutionInterface):
         logger.info(f"📉 平仓币安持仓: {symbol}")
         
         try:
-            # 获取当前持仓
-            positions = self.get_open_positions()
+            # 直接从API获取原始持仓数据（不经过格式化）
+            account_data = self._get_cached_account_data(force_refresh=True)
+            positions = account_data.get('positions', [])
+            
             target_position = None
             for pos in positions:
                 if pos['symbol'] == symbol:
@@ -484,24 +485,32 @@ class BinanceAdapter(ExecutionInterface):
                     'timestamp': datetime.now().isoformat()
                 }
             
+            # 获取原始持仓数量（保持API返回的精度）
+            position_amt = target_position['position_amt']
+            
             # 确定平仓方向（与开仓相反）
-            close_side = 'SELL' if target_position['side'] == 'LONG' else 'BUY'
-            quantity = target_position['quantity']
+            if position_amt > 0:  # 多仓
+                close_side = 'SELL'
+                quantity = abs(position_amt)
+            else:  # 空仓
+                close_side = 'BUY'
+                quantity = abs(position_amt)
             
-            # 使用动态精度格式化数量
-            formatted_quantity = self._format_quantity(symbol, quantity)
+            # 计算未实现盈亏（用于记录）
+            unrealized_pnl = target_position['unrealized_profit']
+            entry_price = target_position['entry_price']
             
-            logger.info(f"   持仓方向: {target_position['side']}")
-            logger.info(f"   平仓数量: {formatted_quantity}")
-            logger.info(f"   开仓价: ${target_position['entry_price']:.2f}")
-            logger.info(f"   未实现盈亏: ${target_position['unrealized_pnl']:.2f}")
+            logger.info(f"   持仓方向: {'LONG' if position_amt > 0 else 'SHORT'}")
+            logger.info(f"   平仓数量: {quantity} (原始精度)")
+            logger.info(f"   开仓价: ${entry_price:.2f}")
+            logger.info(f"   未实现盈亏: ${unrealized_pnl:.2f}")
             
-            # 执行市价平仓单
+            # 执行市价平仓单（使用原始精度的数量）
             order_result = self.client.futures_create_order(
                 symbol=symbol,
                 side=close_side,
                 type='MARKET',
-                quantity=formatted_quantity,
+                quantity=quantity,
                 reduceOnly=True  # 只减仓，不开新仓
             )
             
@@ -515,7 +524,7 @@ class BinanceAdapter(ExecutionInterface):
                 'status': 'SUCCESS',
                 'symbol': symbol,
                 'exit_price': exit_price,
-                'realized_pnl': target_position['unrealized_pnl'],
+                'realized_pnl': unrealized_pnl,
                 'order_id': order_result.get('orderId'),
                 'timestamp': datetime.now().isoformat()
             }

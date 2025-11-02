@@ -470,8 +470,8 @@ class BinanceMockExecution:
             return result
         
         # BUY或SELL操作
-        if not decision.symbol or decision.quantity_pct is None:
-            raise ValueError("BUY/SELL决策必须指定symbol和quantity_pct")
+        if not decision.symbol or decision.quantity is None or decision.quantity <= 0:
+            raise ValueError("BUY/SELL决策必须指定symbol和有效的quantity")
         
         # 如果有持仓,先平仓
         if decision.symbol in self.positions:
@@ -481,22 +481,11 @@ class BinanceMockExecution:
                 current_price = self.positions[decision.symbol].entry_price
             self.close_position(decision.symbol, current_price)
         
-        # 如果quantity_pct为0,只平仓不开仓
-        if decision.quantity_pct == 0:
-            return {
-                'status': 'SUCCESS',
-                'action': 'CLOSE_ONLY',
-                'message': '仅平仓'
-            }
-        
-        # 计算交易数量
-        # quantity_pct * 可用余额 / 当前价格 = 数量
+        # 使用AI决策的数量
         if current_price is None or current_price <= 0:
             raise ValueError("必须提供有效的当前价格")
         
-        # 计算名义价值 = 可用余额 * quantity_pct * 杠杆
-        nominal_value = self.balance * decision.quantity_pct * self.leverage
-        quantity = nominal_value / current_price
+        quantity = decision.quantity
         
         # 确定方向
         side = 'LONG' if decision.action == 'BUY' else 'SHORT'

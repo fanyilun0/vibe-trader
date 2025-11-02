@@ -388,7 +388,7 @@ class VibeTrader:
                 self.logger.info("📝 AI 交易决策:")
                 self.logger.info(f"   操作: {decision.action} {decision.symbol}")
                 self.logger.info(f"   置信度: {decision.confidence:.2f}")
-                self.logger.info(f"   建议仓位: {decision.quantity_pct * 100 if decision.quantity_pct else 0:.1f}%")
+                self.logger.info(f"   交易数量: {decision.quantity} {decision.symbol.replace('USDT', '') if decision.quantity else 'N/A'}")
                 self.logger.info(f"   理由: {decision.rationale}")
                 if decision.exit_plan:
                     self.logger.info(f"   止损: {decision.exit_plan.stop_loss}")

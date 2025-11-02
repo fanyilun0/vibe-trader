@@ -34,7 +34,8 @@ class TradingDecision(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="置信度 (0-1)")
     action: str = Field(..., description="操作类型: BUY, SELL, HOLD, CLOSE_POSITION")
     symbol: Optional[str] = Field(None, description="交易对符号")
-    quantity_pct: Optional[float] = Field(None, ge=0.0, le=1.0, description="仓位百分比 (0-1)")
+    quantity: Optional[float] = Field(None, description="AI决策的交易数量（币的数量）")
+    quantity_pct: Optional[float] = Field(None, ge=0.0, le=1.0, description="仓位百分比 (0-1, 已废弃)")
     exit_plan: Optional[ExitPlan] = Field(None, description="退出计划")
     leverage: Optional[int] = Field(None, description="杠杆倍数")
     risk_usd: Optional[float] = Field(None, description="风险金额(USD)")
@@ -54,11 +55,11 @@ class TradingDecision(BaseModel):
             raise ValueError("当 action 不为 HOLD 时,symbol 为必填项")
         return v
     
-    @validator('quantity_pct')
+    @validator('quantity')
     def validate_quantity_required(cls, v, values):
-        """当action为BUY或SELL时,quantity_pct必填"""
+        """当action为BUY或SELL时,quantity必填"""
         if values.get('action') in ['BUY', 'SELL'] and v is None:
-            raise ValueError("当 action 为 BUY 或 SELL 时,quantity_pct 为必填项")
+            raise ValueError("当 action 为 BUY 或 SELL 时,quantity 为必填项")
         return v
 
 
@@ -333,7 +334,8 @@ class AIDecisionCore:
                 confidence=coin_decision.get('confidence', 0.5),
                 action=action,
                 symbol=f"{target_symbol}USDT" if action != 'HOLD' else None,
-                quantity_pct=coin_decision.get('risk_usd', 0) / 10000 if action in ['BUY', 'SELL'] else None,  # 简单估算
+                quantity=coin_decision.get('quantity') if action in ['BUY', 'SELL'] else None,
+                quantity_pct=None,  # 已废弃，不再使用
                 exit_plan=exit_plan,
                 leverage=coin_decision.get('leverage'),
                 risk_usd=coin_decision.get('risk_usd')

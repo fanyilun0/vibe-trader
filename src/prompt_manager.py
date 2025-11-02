@@ -265,9 +265,15 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
                 liquidation_price = pos.get('liquidation_price', 0)
                 
                 # 持仓数量（多头为正，空头为负）
+                # 注意：这里显示的数量用于AI决策，会进行适当的精度格式化以便阅读
+                # 实际交易时会使用API返回的原始精度数量，确保完全平仓
                 quantity = pos.get('quantity')
                 side = pos.get('side', '').upper()
-                quantity = quantity if side == 'LONG' else 0-quantity
+                
+                # 格式化显示数量（保留足够精度，但去除不必要的尾部零）
+                # 例如: 3.299000 -> 3.299, 1.100000 -> 1.1
+                display_quantity = float(f"{quantity:.6f}".rstrip('0').rstrip('.'))
+                quantity = display_quantity if side == 'LONG' else -display_quantity
                 
                 # 构建详细的持仓字典（包含所有执行细节）
                 position_dict = {
