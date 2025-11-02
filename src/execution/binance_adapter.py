@@ -291,6 +291,44 @@ class BinanceAdapter(ExecutionInterface):
                 'unrealized_pnl': 0.0
             }
     
+    def _format_quantity(self, symbol: str, quantity: float) -> float:
+        """
+        根据交易对精度格式化数量
+        
+        Args:
+            symbol: 交易对符号
+            quantity: 原始数量
+            
+        Returns:
+            格式化后的数量
+        """
+        try:
+            # 获取交易对精度信息
+            symbol_info = self.data_client.get_symbol_info(symbol)
+            precision = symbol_info['quantity_precision']
+            step_size = symbol_info['step_size']
+            min_quantity = symbol_info['min_quantity']
+            
+            # 根据步进大小调整数量
+            if step_size > 0:
+                quantity = (quantity // step_size) * step_size
+            
+            # 根据精度格式化
+            formatted_quantity = round(quantity, precision)
+            
+            # 确保不低于最小数量
+            if formatted_quantity < min_quantity:
+                logger.warning(f"数量 {formatted_quantity} 低于最小值 {min_quantity}，调整为最小值")
+                formatted_quantity = min_quantity
+            
+            logger.debug(f"数量格式化: {quantity:.8f} -> {formatted_quantity:.{precision}f} (精度={precision})")
+            
+            return formatted_quantity
+            
+        except Exception as e:
+            logger.error(f"格式化数量失败: {e}，使用默认精度")
+            return round(quantity, 3)
+    
     def execute_order(self, decision: Any, current_price: float) -> Dict[str, Any]:
         """
         执行订单
@@ -359,12 +397,15 @@ class BinanceAdapter(ExecutionInterface):
             nominal_value = available_balance * decision.quantity_pct * leverage
             quantity = nominal_value / current_price
             
+            # 使用动态精度格式化数量
+            formatted_quantity = self._format_quantity(decision.symbol, quantity)
+            
             # 确定交易方向
             side = 'BUY' if decision.action == 'BUY' else 'SELL'
             
             logger.info(f"📊 订单详情:")
             logger.info(f"   方向: {side}")
-            logger.info(f"   数量: {quantity:.6f} {decision.symbol}")
+            logger.info(f"   数量: {formatted_quantity} {decision.symbol}")
             logger.info(f"   名义价值: ${nominal_value:.2f}")
             logger.info(f"   杠杆: {leverage}x")
             
@@ -373,7 +414,7 @@ class BinanceAdapter(ExecutionInterface):
                 symbol=decision.symbol,
                 side=side,
                 type='MARKET',
-                quantity=round(quantity, 6)  # 币安要求数量精度
+                quantity=formatted_quantity
             )
             
             logger.info(f"✅ 订单提交成功")
@@ -447,8 +488,11 @@ class BinanceAdapter(ExecutionInterface):
             close_side = 'SELL' if target_position['side'] == 'LONG' else 'BUY'
             quantity = target_position['quantity']
             
+            # 使用动态精度格式化数量
+            formatted_quantity = self._format_quantity(symbol, quantity)
+            
             logger.info(f"   持仓方向: {target_position['side']}")
-            logger.info(f"   平仓数量: {quantity:.6f}")
+            logger.info(f"   平仓数量: {formatted_quantity}")
             logger.info(f"   开仓价: ${target_position['entry_price']:.2f}")
             logger.info(f"   未实现盈亏: ${target_position['unrealized_pnl']:.2f}")
             
@@ -457,7 +501,7 @@ class BinanceAdapter(ExecutionInterface):
                 symbol=symbol,
                 side=close_side,
                 type='MARKET',
-                quantity=round(quantity, 6),
+                quantity=formatted_quantity,
                 reduceOnly=True  # 只减仓，不开新仓
             )
             
