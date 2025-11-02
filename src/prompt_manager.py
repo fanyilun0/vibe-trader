@@ -31,7 +31,7 @@ class PromptManager:
         # 设置模板目录
         if template_dir is None:
             project_root = Path(__file__).parent.parent
-            template_dir = project_root / "prompt-template" / "prompts"
+            template_dir = project_root / "prompt-template"
         
         self.template_dir = Path(template_dir)
         
@@ -479,7 +479,7 @@ def create_prompt_manager(template_dir: Optional[str] = None) -> PromptManager:
     创建提示词管理器实例
     
     Args:
-        template_dir: 模板目录，默认为 prompt-template/prompts/
+        template_dir: 模板目录，默认为 prompt-template/
         
     Returns:
         PromptManager 实例
