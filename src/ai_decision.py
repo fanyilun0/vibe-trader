@@ -291,16 +291,9 @@ class AIDecisionCore:
             
             # 提取目标币种的决策
             if target_symbol not in decisions_by_coin:
-                # 如果目标币种没有决策，返回 HOLD
-                logger.warning(f"LLM未对 {target_symbol} 给出决策，默认为 HOLD")
-                return TradingDecision(
-                    rationale=f"LLM未给出明确决策，保持观望",
-                    confidence=0.5,
-                    action="HOLD",
-                    symbol=None,
-                    quantity_pct=None,
-                    exit_plan=None
-                )
+                # 如果目标币种没有决策，抛出异常
+                logger.warning(f"LLM未对 {target_symbol} 给出决策")
+                raise ValueError(f"LLM未对 {target_symbol} 给出决策")
             
             coin_decision = decisions_by_coin[target_symbol]
             trade_signal_args = coin_decision.get('trade_signal_args', {})
@@ -431,16 +424,9 @@ class AIDecisionCore:
                 decision = self.parse_and_validate_decision(llm_response, coin_symbol)
                 decisions[coin_symbol] = decision
             except Exception as e:
-                logger.error(f"解析 {coin_symbol} 决策失败: {e}")
-                # 返回默认HOLD决策
-                decisions[coin_symbol] = TradingDecision(
-                    rationale=f"解析失败: {e}",
-                    confidence=0.0,
-                    action="HOLD",
-                    symbol=None,
-                    quantity_pct=None,
-                    exit_plan=None
-                )
+                logger.warning(f"解析 {coin_symbol} 决策失败: {e}，跳过该币种")
+                # 不添加默认决策，直接跳过
+                continue
         
         return decisions
 

@@ -64,11 +64,16 @@ class RiskManager:
             logger.info("决策为HOLD,跳过风险检查")
             return True, "OK"
         
-        # 检查1: 置信度阈值
-        if decision.confidence < self.min_confidence:
-            reason = f"置信度过低: {decision.confidence} < {self.min_confidence}"
-            logger.warning(f"❌ 风险检查失败: {reason}")
-            return False, reason
+        # 如果是CLOSE_POSITION,跳过置信度检查（平仓是风险控制，不是投机交易）
+        if decision.action == 'CLOSE_POSITION':
+            logger.info("决策为CLOSE_POSITION,跳过置信度检查（风险控制优先）")
+            # 继续执行其他检查
+        else:
+            # 检查1: 置信度阈值（仅对BUY/SELL）
+            if decision.confidence < self.min_confidence:
+                reason = f"置信度过低: {decision.confidence} < {self.min_confidence}"
+                logger.warning(f"❌ 风险检查失败: {reason}")
+                return False, reason
         
         # 检查2: 交易对白名单
         if decision.symbol and decision.symbol not in self.allowed_symbols:
