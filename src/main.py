@@ -283,6 +283,12 @@ class VibeTrader:
                 self.logger.info(f"    置信度: {decision.confidence:.2f}")
                 self.logger.info(f"    理由: {decision.rationale[:100]}..." if len(decision.rationale) > 100 else f"    理由: {decision.rationale}")
             
+            # 检查是否有任何决策
+            if not decisions:
+                self.logger.warning("⚠️  AI未返回任何决策，本周期保持观望")
+                self.logger.info("本周期结束，不执行任何操作\n")
+                return
+            
             # 选择最高置信度的非HOLD决策执行
             # 如果都是HOLD，则选第一个
             decision = None

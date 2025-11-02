@@ -278,7 +278,7 @@ class AIDecisionCore:
             验证后的TradingDecision对象
             
         Raises:
-            ValueError: 如果响应格式无效
+            ValueError: 如果响应格式无效或目标币种不存在
         """
         try:
             # 提取响应内容
@@ -287,13 +287,12 @@ class AIDecisionCore:
             # 解析JSON（新格式是多币种结构）
             decisions_by_coin = json.loads(content)
             
-            logger.info(f"收到 {len(decisions_by_coin)} 个币种的决策")
+            logger.debug(f"收到 {len(decisions_by_coin)} 个币种的决策")
             
             # 提取目标币种的决策
             if target_symbol not in decisions_by_coin:
-                # 如果目标币种没有决策，抛出异常
-                logger.warning(f"LLM未对 {target_symbol} 给出决策")
-                raise ValueError(f"LLM未对 {target_symbol} 给出决策")
+                # 如果目标币种没有决策，抛出异常（让调用方决定如何处理）
+                raise ValueError(f"AI未对 {target_symbol} 给出决策")
             
             coin_decision = decisions_by_coin[target_symbol]
             trade_signal_args = coin_decision.get('trade_signal_args', {})
@@ -336,12 +335,12 @@ class AIDecisionCore:
                 risk_usd=trade_signal_args.get('risk_usd')
             )
             
-            logger.info(f"决策验证通过: action={decision.action}, symbol={decision.symbol}, confidence={decision.confidence}")
+            logger.debug(f"✓ {target_symbol}: action={decision.action}, confidence={decision.confidence}")
             
             return decision
             
-        except (KeyError, json.JSONDecodeError, ValueError) as e:
-            logger.error(f"决策解析失败: {e}")
+        except (KeyError, json.JSONDecodeError) as e:
+            logger.error(f"❌ 决策解析失败: {e}")
             logger.error(f"原始响应内容: {content if 'content' in locals() else '无法获取'}")
             raise ValueError(f"无法解析LLM响应: {e}")
     
@@ -411,22 +410,44 @@ class AIDecisionCore:
             
         Returns:
             币种符号 -> 交易决策的字典
+            
+        注意：
+            只返回AI明确给出决策的币种，未提及的币种会被自动跳过
         """
         logger.info(f"开始生成 {len(market_features_by_coin)} 个币种的交易决策")
         
         # 调用LLM（一次调用处理所有币种，传递exit_plans）
         llm_response = self.call_llm(market_features_by_coin, account_features, global_state, exit_plans)
         
-        # 为每个币种解析决策
+        # 提取LLM响应中的所有币种决策
+        try:
+            content = llm_response['choices'][0]['message']['content']
+            decisions_by_coin = json.loads(content)
+            logger.info(f"✅ AI返回了 {len(decisions_by_coin)} 个币种的决策")
+        except (KeyError, json.JSONDecodeError) as e:
+            logger.error(f"❌ 无法解析LLM响应: {e}")
+            return {}
+        
+        # 只处理AI明确给出决策的币种
         decisions = {}
-        for coin_symbol in market_features_by_coin.keys():
+        for coin_symbol in decisions_by_coin.keys():
+            # 检查该币种是否在我们请求的列表中
+            if coin_symbol not in market_features_by_coin:
+                logger.warning(f"⚠️  AI返回了未请求的币种决策: {coin_symbol}，跳过")
+                continue
+            
             try:
                 decision = self.parse_and_validate_decision(llm_response, coin_symbol)
                 decisions[coin_symbol] = decision
+                logger.info(f"✓ {coin_symbol}: {decision.action}")
             except Exception as e:
-                logger.warning(f"解析 {coin_symbol} 决策失败: {e}，跳过该币种")
-                # 不添加默认决策，直接跳过
+                logger.warning(f"⚠️  解析 {coin_symbol} 决策失败: {e}，跳过该币种")
                 continue
+        
+        # 记录被跳过的币种
+        skipped_coins = set(market_features_by_coin.keys()) - set(decisions.keys())
+        if skipped_coins:
+            logger.info(f"ℹ️  以下币种未获得AI决策，已跳过: {', '.join(sorted(skipped_coins))}")
         
         return decisions
 

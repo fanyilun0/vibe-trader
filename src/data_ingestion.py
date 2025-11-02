@@ -50,6 +50,9 @@ class BinanceDataIngestion:
         self.unavailable_apis = set()
         self._testnet_warning_shown = False
         
+        # 交易对精度信息缓存
+        self._symbol_info_cache = {}
+        
         # 初始化币安客户端
         self.client = Client(api_key, api_secret, testnet=testnet)
         
@@ -491,6 +494,92 @@ class BinanceDataIngestion:
         data['funding_rate'] = self.get_funding_rate(symbol, limit=1)
         
         return data
+    
+    def get_symbol_info(self, symbol: str) -> Dict[str, Any]:
+        """
+        获取交易对的精度信息（从exchange info API）
+        
+        Args:
+            symbol: 交易对符号（如 BTCUSDT）
+            
+        Returns:
+            包含精度信息的字典：
+            {
+                'quantity_precision': int,  # 数量精度（小数位数）
+                'price_precision': int,     # 价格精度（小数位数）
+                'min_quantity': float,      # 最小下单数量
+                'max_quantity': float,      # 最大下单数量
+                'step_size': float          # 数量步进大小
+            }
+        """
+        # 检查缓存
+        if symbol in self._symbol_info_cache:
+            logger.debug(f"使用缓存的交易对信息: {symbol}")
+            return self._symbol_info_cache[symbol]
+        
+        try:
+            logger.debug(f"获取交易对信息: {symbol}")
+            
+            # 调用币安API获取交易对信息
+            exchange_info = self.client.futures_exchange_info()
+            
+            # 查找目标交易对
+            symbol_info = None
+            for s in exchange_info.get('symbols', []):
+                if s.get('symbol') == symbol:
+                    symbol_info = s
+                    break
+            
+            if not symbol_info:
+                logger.warning(f"未找到交易对信息: {symbol}")
+                return self._get_default_symbol_info()
+            
+            # 提取精度信息
+            quantity_precision = symbol_info.get('quantityPrecision', 3)
+            price_precision = symbol_info.get('pricePrecision', 2)
+            
+            # 提取过滤器信息
+            filters = symbol_info.get('filters', [])
+            min_quantity = 0.0
+            max_quantity = float('inf')
+            step_size = 0.0
+            
+            for f in filters:
+                if f.get('filterType') == 'LOT_SIZE':
+                    min_quantity = float(f.get('minQty', 0))
+                    max_quantity = float(f.get('maxQty', float('inf')))
+                    step_size = float(f.get('stepSize', 0))
+                    break
+            
+            result = {
+                'quantity_precision': quantity_precision,
+                'price_precision': price_precision,
+                'min_quantity': min_quantity,
+                'max_quantity': max_quantity,
+                'step_size': step_size
+            }
+            
+            # 缓存结果
+            self._symbol_info_cache[symbol] = result
+            
+            logger.debug(f"✓ {symbol} 精度信息: 数量={quantity_precision}位, 价格={price_precision}位, "
+                        f"最小数量={min_quantity}, 步进={step_size}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"获取交易对信息失败: {e}")
+            return self._get_default_symbol_info()
+    
+    def _get_default_symbol_info(self) -> Dict[str, Any]:
+        """返回默认的交易对精度信息"""
+        return {
+            'quantity_precision': 3,
+            'price_precision': 2,
+            'min_quantity': 0.001,
+            'max_quantity': 10000.0,
+            'step_size': 0.001
+        }
     
     def get_account_data(self) -> Dict[str, Any]:
         """
