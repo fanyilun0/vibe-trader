@@ -84,16 +84,26 @@ class RiskManager:
                 logger.warning(f"❌ 风险检查失败: {reason}")
                 return False, reason
             
-            # 计算名义价值和仓位百分比
+            # 计算名义价值和实际保证金占用
             if current_price and account_value > 0:
                 notional_value = decision.quantity * current_price
-                position_pct = notional_value / account_value
+                
+                # 获取杠杆倍数（如果未设置，默认为1倍）
+                leverage = decision.leverage if decision.leverage and decision.leverage > 0 else 1
+                
+                # 计算实际保证金占用 = 名义价值 / 杠杆
+                margin_required = notional_value / leverage
+                
+                # 计算保证金占用百分比
+                position_pct = margin_required / account_value
                 
                 logger.info(f"  订单名义价值: ${notional_value:,.2f}")
+                logger.info(f"  杠杆倍数: {leverage}x")
+                logger.info(f"  保证金占用: ${margin_required:,.2f} ({position_pct*100:.1f}%)")
                 
-                # 检查是否超过最大仓位百分比
+                # 检查是否超过最大仓位百分比（基于保证金占用）
                 if position_pct > self.max_position_size_pct:
-                    reason = f"订单规模过大: {position_pct*100:.1f}% > {self.max_position_size_pct*100:.1f}%"
+                    reason = f"保证金占用过大: {position_pct*100:.1f}% > {self.max_position_size_pct*100:.1f}%"
                     logger.warning(f"❌ 风险检查失败: {reason}")
                     return False, reason
         
