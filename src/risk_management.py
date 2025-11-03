@@ -64,8 +64,14 @@ class RiskManager:
             logger.info("决策为HOLD,跳过风险检查")
             return True, "OK"
         
+        # 如果是平仓操作,跳过置信度检查（平仓优先级高于置信度要求）
+        if decision.action == 'CLOSE_POSITION':
+            logger.info("决策为CLOSE_POSITION,跳过置信度检查（平仓优先）")
+            # 仍然进行其他检查（如果适用），但跳过置信度检查
+            logger.info("✅ 平仓操作风险检查通过")
+            return True, "OK"
 
-        # 检查1: 置信度阈值
+        # 检查1: 置信度阈值（仅对 BUY/SELL 操作）
         if decision.confidence < self.min_confidence:
             reason = f"置信度过低: {decision.confidence} < {self.min_confidence}"
             logger.warning(f"❌ 风险检查失败: {reason}")
