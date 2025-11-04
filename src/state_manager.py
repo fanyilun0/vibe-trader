@@ -59,6 +59,7 @@ class StateManager:
             'last_decision': None,
             'performance_history': [],
             'position_exit_plans': {},  # 存储每个持仓的exit_plan {symbol: exit_plan}
+            'sharpe_ratio': 0.0,  # 夏普比率
             'metadata': {
                 'version': '0.1.0',
                 'created_at': datetime.now().isoformat()
@@ -139,6 +140,11 @@ class StateManager:
         # 只保留最近100条记录
         if len(self.state['performance_history']) > 100:
             self.state['performance_history'] = self.state['performance_history'][-100:]
+        
+        # 计算并保存最新的夏普比率
+        sharpe_ratio = self.calculate_sharpe_ratio()
+        self.state['sharpe_ratio'] = sharpe_ratio
+        logger.debug(f"更新夏普比率: {sharpe_ratio:.4f}")
     
     def save(self):
         """保存状态到文件"""
@@ -240,6 +246,15 @@ class StateManager:
             self.state['position_exit_plans'] = {}
         
         return self.state['position_exit_plans']
+    
+    def get_sharpe_ratio(self) -> float:
+        """
+        获取已保存的夏普比率
+        
+        Returns:
+            夏普比率，如果不存在则返回0.0
+        """
+        return self.state.get('sharpe_ratio', 0.0)
     
     def calculate_sharpe_ratio(self, min_data_points: int = 10) -> float:
         """

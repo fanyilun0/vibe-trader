@@ -686,6 +686,10 @@ RSI indicators (14‑Period): [
 
 ### HERE IS YOUR ACCOUNT INFORMATION & PERFORMANCE
 
+**Risk Management Constraints:**
+- Maximum Position Size: {{MAX_POSITION_SIZE_PCT}}% of account value per position
+- Maximum Open Positions: {{MAX_OPEN_POSITIONS}}
+
 Current Total Return (percent): 31.81%
 
 Available Cash: 4927.64

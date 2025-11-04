@@ -19,7 +19,7 @@ from datetime import datetime
 import sys
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-from config import Config
+from config import Config, RiskManagementConfig
 
 logger = logging.getLogger(__name__)
 
@@ -275,9 +275,17 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         
         # 获取夏普比率（如果存在）
         sharpe_ratio = account_features.get('sharpe_ratio', 0)
-        sharpe_text = f"\n\n夏普比率: {sharpe_ratio:.3f}" if sharpe_ratio else ""
+        sharpe_text = f"\n\n夏普比率: {sharpe_ratio:.3f}"
+        
+        # 获取风险管理约束（从配置）
+        max_position_size_pct = RiskManagementConfig.MAX_POSITION_SIZE_PCT * 100  # 转换为百分比
+        max_open_positions = RiskManagementConfig.MAX_OPEN_POSITIONS
         
         section = f"""### 这是你的账户信息和业绩
+
+**风险管理约束:**
+- 最大单笔仓位规模: 账户价值的 {max_position_size_pct:.0f}%
+- 最大持仓数量: {max_open_positions}
 
 当前总回报率(百分比): {account_features.get('total_return_percent', 0):.2f}%
 

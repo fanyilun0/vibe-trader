@@ -320,33 +320,20 @@ class VibeTrader:
                 decision = decisions[coin]
                 self.logger.info(f"\n💤 所有币种都为 HOLD，保持观望")
             
-            # 记录决策和exit_plan（记录所有币种的决策）
+            # 记录所有币种的决策
             for coin, d in decisions.items():
                 self.state_manager.record_decision({
                     **d.model_dump(),
                     'coin': coin
                 })
-                
-                # 保存或移除exit_plan
+            
+            # 检查是否有持仓，为已有持仓更新/补充exit_plan（仅HOLD时）
+            for coin, d in decisions.items():
                 symbol = f"{coin}USDT"
-                
-                # 检查该币种是否有持仓
                 has_position = any(pos.get('symbol') == symbol for pos in account_features['list_of_position_dictionaries'])
                 
-                if d.action in ['BUY', 'SELL'] and d.exit_plan:
-                    # 新开仓，保存exit_plan
-                    exit_plan_dict = {
-                        'profit_target': d.exit_plan.take_profit,
-                        'stop_loss': d.exit_plan.stop_loss,
-                        'invalidation_condition': d.exit_plan.invalidation_conditions,
-                        'leverage': d.leverage if d.leverage else 20,
-                        'confidence': d.confidence,
-                        'risk_usd': d.risk_usd if d.risk_usd else 0
-                    }
-                    self.state_manager.save_position_exit_plan(symbol, exit_plan_dict)
-                elif d.action == 'HOLD' and d.exit_plan and has_position:
-                    # HOLD 时如果有持仓且提供了 exit_plan，则更新/补充 exit_plan
-                    # 这处理了 AI 为已有持仓补充退出计划的情况
+                # HOLD 时如果有持仓且提供了 exit_plan，则更新/补充 exit_plan（HOLD不受置信度限制）
+                if d.action == 'HOLD' and d.exit_plan and has_position:
                     exit_plan_dict = {
                         'profit_target': d.exit_plan.take_profit,
                         'stop_loss': d.exit_plan.stop_loss,
@@ -357,12 +344,6 @@ class VibeTrader:
                     }
                     self.state_manager.save_position_exit_plan(symbol, exit_plan_dict)
                     self.logger.info(f"✅ 为 {symbol} 持仓更新退出计划: 止盈={d.exit_plan.take_profit}, 止损={d.exit_plan.stop_loss}")
-                elif d.action == 'CLOSE_POSITION':
-                    # 平仓，移除exit_plan
-                    self.state_manager.remove_position_exit_plan(symbol)
-            
-            # 保存状态（确保exit_plan被持久化）
-            self.state_manager.save()
             
             # 步骤 5: 风险检查
             self.logger.info("\n[步骤 4/6] 风险管理检查...")
@@ -428,6 +409,22 @@ class VibeTrader:
                             pos = execution_result['position']
                             self.logger.info(f"   持仓: {pos['side']} {pos['quantity']:.4f} {pos['symbol']}")
                             self.logger.info(f"   开仓价: ${pos['entry_price']:.2f}")
+                        
+                        # 交易执行成功后，保存或移除exit_plan
+                        if decision.action in ['BUY', 'SELL'] and decision.exit_plan:
+                            # 只保存通过置信度检测且成功开仓的exit_plan
+                            exit_plan_dict = {
+                                'profit_target': decision.exit_plan.take_profit,
+                                'stop_loss': decision.exit_plan.stop_loss,
+                                'invalidation_condition': decision.exit_plan.invalidation_conditions,
+                                'leverage': decision.leverage if decision.leverage else 20,
+                                'confidence': decision.confidence,
+                                'risk_usd': decision.risk_usd if decision.risk_usd else 0
+                            }
+                            self.state_manager.save_position_exit_plan(decision.symbol, exit_plan_dict)
+                        elif decision.action == 'CLOSE_POSITION':
+                            # 平仓成功，移除exit_plan
+                            self.state_manager.remove_position_exit_plan(decision.symbol)
                     elif execution_result.get('status') == 'SKIPPED':
                         self.logger.info(f"ℹ️  {execution_result.get('message', '跳过执行')}")
                     else:
