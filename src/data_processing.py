@@ -183,6 +183,31 @@ class DataProcessor:
         return df
     
     @staticmethod
+    def process_fear_and_greed_index(
+        fear_greed_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        处理恐惧贪婪指数数据
+        
+        Args:
+            fear_greed_data: 原始恐惧贪婪指数数据
+            
+        Returns:
+            处理后的恐惧贪婪指数特征字典
+        """
+        if not fear_greed_data:
+            logger.warning("恐惧贪婪指数数据为空，使用默认中性值")
+            return {
+                'fear_greed_value': 50,
+                'fear_greed_classification': 'Neutral'
+            }
+        
+        return {
+            'fear_greed_value': int(fear_greed_data.get('value', 50)),
+            'fear_greed_classification': fear_greed_data.get('value_classification', 'Neutral')
+        }
+    
+    @staticmethod
     def process_market_data(
         raw_data: Dict[str, Any],
         symbol: str

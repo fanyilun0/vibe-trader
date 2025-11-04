@@ -16,6 +16,106 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class FearAndGreedIndexFetcher:
+    """恐惧贪婪指数获取器"""
+    
+    # Alternative.me API (免费且稳定)
+    ALTERNATIVE_ME_API = "https://api.alternative.me/fng/"
+    
+    def __init__(self, timeout: int = 10):
+        """
+        初始化恐惧贪婪指数获取器
+        
+        Args:
+            timeout: 请求超时时间（秒）
+        """
+        self.timeout = timeout
+        self._cache = None
+        self._cache_time = None
+        self._cache_ttl = 3600  # 缓存1小时（指数每天更新一次）
+    
+    def get_fear_and_greed_index(self, limit: int = 1) -> Dict[str, Any]:
+        """
+        获取恐惧贪婪指数
+        
+        Args:
+            limit: 获取的历史数据点数量（1=仅最新，最多365）
+            
+        Returns:
+            包含恐惧贪婪指数数据的字典:
+            {
+                'value': int (0-100),
+                'value_classification': str ('Extreme Fear', 'Fear', 'Neutral', 'Greed', 'Extreme Greed'),
+                'timestamp': int,
+                'time_until_update': str (可选)
+            }
+        """
+        # 检查缓存
+        current_time = time.time()
+        if self._cache and self._cache_time and (current_time - self._cache_time) < self._cache_ttl:
+            logger.debug("使用缓存的恐惧贪婪指数数据")
+            return self._cache
+        
+        try:
+            logger.debug(f"从 Alternative.me 获取恐惧贪婪指数 (limit={limit})...")
+            
+            # 调用 Alternative.me API
+            params = {'limit': limit}
+            response = requests.get(self.ALTERNATIVE_ME_API, params=params, timeout=self.timeout)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # 验证响应格式
+            if 'data' not in data or not data['data']:
+                logger.warning("恐惧贪婪指数API返回空数据")
+                return self._get_default_index()
+            
+            # 提取最新数据点
+            latest = data['data'][0]
+            
+            result = {
+                'value': int(latest.get('value', 50)),
+                'value_classification': latest.get('value_classification', 'Neutral'),
+                'timestamp': int(latest.get('timestamp', current_time)),
+                'time_until_update': latest.get('time_until_update', 'N/A')
+            }
+            
+            # 更新缓存
+            self._cache = result
+            self._cache_time = current_time
+            
+            logger.info(f"✅ 恐惧贪婪指数: {result['value']} ({result['value_classification']})")
+            
+            return result
+            
+        except requests.exceptions.Timeout:
+            logger.warning(f"恐惧贪婪指数API请求超时 ({self.timeout}秒)")
+            return self._get_default_index()
+            
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"获取恐惧贪婪指数失败: {e}")
+            return self._get_default_index()
+            
+        except Exception as e:
+            logger.error(f"解析恐惧贪婪指数数据失败: {e}")
+            return self._get_default_index()
+    
+    def _get_default_index(self) -> Dict[str, Any]:
+        """返回默认的中性指数值"""
+        return {
+            'value': 50,
+            'value_classification': 'Neutral',
+            'timestamp': int(time.time()),
+            'time_until_update': 'N/A'
+        }
+    
+    def clear_cache(self):
+        """清除缓存（用于测试或强制刷新）"""
+        self._cache = None
+        self._cache_time = None
+
+
 class BinanceDataIngestion:
     """币安数据摄取客户端"""
     
@@ -52,6 +152,9 @@ class BinanceDataIngestion:
         
         # 交易对精度信息缓存
         self._symbol_info_cache = {}
+        
+        # 初始化恐惧贪婪指数获取器
+        self.fear_greed_fetcher = FearAndGreedIndexFetcher(timeout=10)
         
         # 初始化币安客户端
         self.client = Client(api_key, api_secret, testnet=testnet)
@@ -433,6 +536,16 @@ class BinanceDataIngestion:
         
         # 允许空响应（测试网此接口可能不可用）
         return self._retry_request(_get, allow_empty=True)
+    
+    def get_fear_and_greed_index(self) -> Dict[str, Any]:
+        """
+        获取市场恐惧贪婪指数
+        
+        Returns:
+            包含恐惧贪婪指数数据的字典
+        """
+        logger.debug("获取恐惧贪婪指数...")
+        return self.fear_greed_fetcher.get_fear_and_greed_index()
     
     def get_account_info(self) -> Dict[str, Any]:
         """

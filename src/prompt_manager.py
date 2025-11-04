@@ -96,6 +96,27 @@ class PromptManager:
             return ""
     
     
+    def _interpret_fear_greed(self, value: int) -> str:
+        """
+        解读恐惧贪婪指数
+        
+        Args:
+            value: 恐惧贪婪指数值（0-100）
+            
+        Returns:
+            解读文本
+        """
+        if value <= 24:
+            return "**市场情绪解读**: 极度恐惧状态。市场可能过度悲观，历史上这通常是买入机会。考虑寻找技术支撑位做多，但要谨慎确认底部信号。"
+        elif value <= 44:
+            return "**市场情绪解读**: 恐惧状态。投资者较为谨慎，可以寻找质量好的资产在支撑位建仓，风险回报比较为有利。"
+        elif value <= 55:
+            return "**市场情绪解读**: 中性状态。市场情绪平衡，需要结合技术指标和趋势分析来做决策，避免盲目跟风。"
+        elif value <= 74:
+            return "**市场情绪解读**: 贪婪状态。市场情绪乐观，适合持有盈利仓位，但要注意及时获利了结，避免贪婪导致利润回吐。"
+        else:
+            return "**市场情绪解读**: 极度贪婪状态。市场可能过热，要警惕回调风险。建议收紧止损，考虑部分获利或寻找做空机会。"
+    
     def build_coin_data_section(
         self,
         coin_symbol: str,
@@ -291,11 +312,26 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         current_timestamp = global_state.get('current_timestamp', datetime.now().isoformat())
         invocation_count = global_state.get('invocation_count', 0)
         
+        # 提取恐惧贪婪指数数据
+        fear_greed_value = global_state.get('fear_greed_value', 50)
+        fear_greed_classification = global_state.get('fear_greed_classification', 'Neutral')
+        
+        # 恐惧贪婪指数解读
+        fear_greed_interpretation = self._interpret_fear_greed(fear_greed_value)
+        
         header = f"""自你开始交易以来已经过去了 {minutes_trading} 分钟。当前时间是 {current_timestamp},你已经被调用了 {invocation_count} 次。以下我们为你提供各种状态数据、价格数据和预测信号,以便你发现阿尔法。下面是你当前的账户信息、价值、业绩、持仓等。
 
 **以下所有价格或信号数据的排序方式为:最旧 → 最新**
 
 **时间框架说明:** 除非在章节标题中另有说明,日内序列以 **3 分钟间隔**提供。如果某个币种使用不同的间隔,会在该币种的章节中明确说明。
+
+---
+
+### 市场情绪指标
+
+**恐惧贪婪指数**: {fear_greed_value} ({fear_greed_classification})
+
+{fear_greed_interpretation}
 
 ---
 

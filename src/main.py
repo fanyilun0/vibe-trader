@@ -156,6 +156,18 @@ class VibeTrader:
             self.logger.info("\n[步骤 1/6] 数据摄取...")
             market_features_by_coin = {}
             
+            # 获取恐惧贪婪指数（全局数据，只需获取一次）
+            self.logger.info("  获取恐惧贪婪指数...")
+            try:
+                fear_greed_data = self.data_client.get_fear_and_greed_index()
+                fear_greed_features = self.data_processor.process_fear_and_greed_index(fear_greed_data)
+            except Exception as e:
+                self.logger.warning(f"  获取恐惧贪婪指数失败: {e}，使用默认值")
+                fear_greed_features = {
+                    'fear_greed_value': 50,
+                    'fear_greed_classification': 'Neutral'
+                }
+            
             for symbol in self.symbols:
                 self.logger.info(f"  获取 {symbol} 数据...")
                 try:
@@ -235,6 +247,9 @@ class VibeTrader:
             
             # 步骤 3: 获取全局状态和exit_plans
             global_state = self.state_manager.get_global_state()
+            # 将恐惧贪婪指数添加到全局状态
+            global_state['fear_greed_value'] = fear_greed_features['fear_greed_value']
+            global_state['fear_greed_classification'] = fear_greed_features['fear_greed_classification']
             exit_plans = self.state_manager.get_all_exit_plans()
             
             # 从exit_plans中提取订单ID信息并补充到持仓数据中
