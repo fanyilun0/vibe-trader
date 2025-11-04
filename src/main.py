@@ -304,22 +304,6 @@ class VibeTrader:
                 self.logger.info("本周期结束，不执行任何操作\n")
                 return
             
-            # 选择最高置信度的非HOLD决策执行
-            # 如果都是HOLD，则选第一个
-            decision = None
-            non_hold_decisions = [(coin, d) for coin, d in decisions.items() if d.action != 'HOLD']
-            
-            if non_hold_decisions:
-                # 按置信度排序，选最高的
-                non_hold_decisions.sort(key=lambda x: x[1].confidence, reverse=True)
-                coin, decision = non_hold_decisions[0]
-                self.logger.info(f"\n✨ 选择执行: {coin} ({decision.action}, 置信度={decision.confidence:.2f})")
-            else:
-                # 都是HOLD，选第一个
-                coin = list(decisions.keys())[0]
-                decision = decisions[coin]
-                self.logger.info(f"\n💤 所有币种都为 HOLD，保持观望")
-            
             # 记录所有币种的决策
             for coin, d in decisions.items():
                 self.state_manager.record_decision({
@@ -344,6 +328,41 @@ class VibeTrader:
                     }
                     self.state_manager.save_position_exit_plan(symbol, exit_plan_dict)
                     self.logger.info(f"✅ 为 {symbol} 持仓更新退出计划: 止盈={d.exit_plan.take_profit}, 止损={d.exit_plan.stop_loss}")
+            
+            # 选择最高置信度的非HOLD决策执行
+            # 先过滤掉置信度不足的BUY/SELL决策
+            decision = None
+            non_hold_decisions = []
+            
+            for coin, d in decisions.items():
+                if d.action == 'HOLD':
+                    continue
+                
+                # 对于BUY/SELL操作，检查置信度是否达标
+                if d.action in ['BUY', 'SELL']:
+                    if d.confidence >= self.risk_manager.min_confidence:
+                        non_hold_decisions.append((coin, d))
+                    else:
+                        self.logger.info(f"⚠️  {coin} 置信度({d.confidence:.2f})未达到最低要求({self.risk_manager.min_confidence})，跳过")
+                else:
+                    # CLOSE_POSITION不受置信度限制
+                    non_hold_decisions.append((coin, d))
+            
+            if non_hold_decisions:
+                # 按置信度排序，选最高的
+                non_hold_decisions.sort(key=lambda x: x[1].confidence, reverse=True)
+                coin, decision = non_hold_decisions[0]
+                self.logger.info(f"\n✨ 选择执行: {coin} ({decision.action}, 置信度={decision.confidence:.2f})")
+            else:
+                # 都是HOLD或置信度不足，选择观望
+                self.logger.info(f"\n💤 所有币种都为 HOLD 或置信度不足，保持观望")
+                # 使用一个HOLD决策占位
+                coin = list(decisions.keys())[0]
+                decision = decisions[coin]
+                # 如果选中的不是HOLD，强制改为HOLD（避免执行置信度不足的交易）
+                if decision.action != 'HOLD':
+                    self.logger.info("本周期结束，不执行任何操作")
+                    return
             
             # 步骤 5: 风险检查
             self.logger.info("\n[步骤 4/6] 风险管理检查...")
