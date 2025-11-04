@@ -273,7 +273,7 @@ class AIDecisionCore:
     
     def parse_and_validate_decision(self, llm_response: Dict[str, Any], target_symbol: str) -> TradingDecision:
         """
-        解析和验证LLM响应（扁平JSON格式）
+        解析和验证LLM响应（数组JSON格式）
         
         Args:
             llm_response: LLM的原始响应
@@ -289,18 +289,25 @@ class AIDecisionCore:
             # 提取响应内容
             content = llm_response['choices'][0]['message']['content']
             
-            # 解析JSON（扁平格式：每个币种下直接包含所有字段）
-            decisions_by_coin = json.loads(content)
+            # 解析JSON（数组格式）
+            decisions_array = json.loads(content)
             
-            logger.debug(f"收到 {len(decisions_by_coin)} 个币种的决策")
+            # 确保是数组格式
+            if not isinstance(decisions_array, list):
+                raise ValueError(f"期望JSON数组格式，但收到: {type(decisions_array)}")
             
-            # 提取目标币种的决策
-            if target_symbol not in decisions_by_coin:
+            logger.debug(f"收到 {len(decisions_array)} 个币种的决策")
+            
+            # 查找目标币种的决策
+            coin_decision = None
+            for decision in decisions_array:
+                if decision.get('coin') == target_symbol:
+                    coin_decision = decision
+                    break
+            
+            if coin_decision is None:
                 # 如果目标币种没有决策，抛出异常（让调用方决定如何处理）
                 raise ValueError(f"AI未对 {target_symbol} 给出决策")
-            
-            # 直接从币种对象中获取字段（扁平结构）
-            coin_decision = decisions_by_coin[target_symbol]
             
             # 转换为 TradingDecision 格式
             signal = coin_decision.get('signal', 'hold').upper()
@@ -428,15 +435,26 @@ class AIDecisionCore:
         # 提取LLM响应中的所有币种决策
         try:
             content = llm_response['choices'][0]['message']['content']
-            decisions_by_coin = json.loads(content)
-            logger.info(f"✅ AI返回了 {len(decisions_by_coin)} 个币种的决策")
+            decisions_array = json.loads(content)
+            
+            # 确保是数组格式
+            if not isinstance(decisions_array, list):
+                raise ValueError(f"期望JSON数组格式，但收到: {type(decisions_array)}")
+            
+            logger.info(f"✅ AI返回了 {len(decisions_array)} 个币种的决策")
         except (KeyError, json.JSONDecodeError) as e:
             logger.error(f"❌ 无法解析LLM响应: {e}")
             return {}
         
         # 只处理AI明确给出决策的币种
         decisions = {}
-        for coin_symbol in decisions_by_coin.keys():
+        for decision_obj in decisions_array:
+            coin_symbol = decision_obj.get('coin')
+            
+            if not coin_symbol:
+                logger.warning(f"⚠️  决策对象缺少 'coin' 字段，跳过: {decision_obj}")
+                continue
+            
             # 检查该币种是否在我们请求的列表中
             if coin_symbol not in market_features_by_coin:
                 logger.warning(f"⚠️  AI返回了未请求的币种决策: {coin_symbol}，跳过")

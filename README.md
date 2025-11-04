@@ -7,6 +7,7 @@
 ## 🌟 核心特性
 
 - **🤖 AI 决策引擎**: 使用 Deepseek LLM 进行智能交易决策
+- **✨ 专业提示词工程**: 基于 nof1.ai 的最佳实践，完整的风险管理协议 🆕
 - **📊 完整技术分析**: 集成 EMA, MACD, RSI, ATR 等多种技术指标
 - **🛡️ 多层风险控制**: 严格的风险管理和安全检查机制
 - **🔌 模块化架构**: 清晰的关注点分离,易于测试和扩展
@@ -176,16 +177,47 @@ python3 -m src.main --once
 python3 -m src.main
 ```
 
-## 📊 提示词模板
+## 📊 提示词系统
 
-系统使用结构化提示词向 LLM 提供市场数据。完整模板参见 [docs/template.md](docs/template.md)。
+### 专业级提示词工程
 
-关键数据包括:
+系统采用基于 [nof1.ai Alpha Arena](https://nof1.ai/) 的专业提示词工程，提供结构化、完整的交易决策框架。
 
-- **短期数据** (3分钟): 价格、EMA、MACD、RSI
-- **长期数据** (4小时): EMA、ATR、成交量
-- **衍生品数据**: 持仓量、资金费率
-- **账户数据**: 余额、持仓、收益率
+#### 系统提示词特性
+
+✨ **基于 nof1.ai 最佳实践**
+- 完整的交易环境规范和风险管理协议
+- 强制结构化 JSON 输出，确保决策可执行
+- 元认知设计（confidence、invalidation_condition）
+- 针对 Deepseek 模型的特定优化
+
+📋 **核心模块**
+- 角色与身份定义
+- 交易环境规范（市场参数、交易机制）
+- 行动空间定义（buy_to_enter、sell_to_enter、hold、close_position）
+- 仓位管理约束与计算框架
+- 风险管理协议（profit_target、stop_loss、invalidation_condition）
+- 技术指标解读指南（EMA、MACD、RSI、ATR、OI、Funding Rate）
+- 交易哲学与最佳实践
+
+#### 提供的市场数据
+
+- **短期数据** (3分钟): 价格序列、EMA、MACD、RSI
+- **长期数据** (4小时): EMA、ATR、成交量、MACD、RSI
+- **衍生品数据**: 持仓量（OI）、资金费率
+- **账户数据**: 可用资金、账户价值、持仓详情、收益率
+
+#### 自定义提示词
+
+通过环境变量自定义提示词文件：
+
+```bash
+# .env 文件
+SYSTEM_PROMPT_FILE=/path/to/custom_system_prompt.md
+USER_PROMPT_TEMPLATE_FILE=/path/to/custom_user_prompt.md
+```
+
+详细信息参见 [提示词优化指南](docs/prompt-optimization-guide.md)。
 
 ## 🛡️ 风险管理
 
@@ -236,9 +268,15 @@ vibe-trader/
 ├── .gitignore              # Git 忽略规则
 ├── docs/                   # 文档
 │   ├── vibe-trader-arti.md # 架构蓝图
+│   ├── prompt-optimization-guide.md # 提示词优化指南 🆕
 │   ├── template.md         # 提示词模板
 │   ├── template-description.md
 │   └── SETUP_GUIDE.md      # 设置指南
+├── prompt-template/       # 提示词模板 🆕
+│   ├── nof1_system_prompt_cn.md   # nof1.ai 系统提示词
+│   ├── nof1-prompt.md             # nof1.ai 逆向分析
+│   ├── user_prompt_cn.md          # 用户提示词模板
+│   └── ...                        # 其他提示词变体
 ├── src/                    # 源代码
 │   ├── __init__.py
 │   ├── main.py            # 主程序入口
@@ -259,6 +297,7 @@ vibe-trader/
 ## 📖 详细文档
 
 - [系统架构蓝图](docs/vibe-trader-arti.md) - 完整的技术架构文档
+- [提示词优化指南](docs/prompt-optimization-guide.md) - 基于 nof1.ai 的提示词工程 🆕
 - [提示词模板](docs/template.md) - AI 使用的提示词结构
 - [模板数据说明](docs/template-description.md) - 数据字段详细说明
 
@@ -311,13 +350,25 @@ macd_data = DataProcessor.calculate_macd(
 
 ### 自定义 AI 提示词
 
-编辑 `src/ai_decision.py` 中的 `STATIC_INSTRUCTIONS`:
+#### 方法 1: 环境变量（推荐）
 
-```python
-STATIC_INSTRUCTIONS = """
-你的自定义指令...
-"""
+在 `.env` 文件中指定自定义提示词文件：
+
+```bash
+# 自定义系统提示词
+SYSTEM_PROMPT_FILE=/path/to/your_system_prompt.md
+
+# 自定义用户提示词模板（可选）
+USER_PROMPT_TEMPLATE_FILE=/path/to/your_user_prompt.md
 ```
+
+#### 方法 2: 直接修改模板文件
+
+编辑 `prompt-template/nof1_system_prompt_cn.md` 自定义系统提示词。
+
+系统会自动将 `[MODEL_NAME]` 替换为配置中的实际模型名称（默认为 `deepseek-reasoner`）。
+
+更多信息参见 [提示词优化指南](docs/prompt-optimization-guide.md)。
 
 ## 🐛 故障排除
 

@@ -105,6 +105,54 @@ class DeepseekConfig:
 
 
 # ============================================
+# 提示词模板配置
+# ============================================
+class PromptConfig:
+    """提示词模板配置"""
+    
+    # 提示词模板目录
+    TEMPLATE_DIR = PROJECT_ROOT / 'prompt-template'
+    
+    # 系统提示词文件路径（可通过环境变量覆盖）
+    SYSTEM_PROMPT_FILE = os.getenv(
+        'SYSTEM_PROMPT_FILE',
+        str(TEMPLATE_DIR / 'nof1_system_prompt_cn.md')
+    )
+    
+    # 用户提示词模板文件路径（可通过环境变量覆盖）
+    USER_PROMPT_TEMPLATE_FILE = os.getenv(
+        'USER_PROMPT_TEMPLATE_FILE',
+        str(TEMPLATE_DIR / 'user_prompt_cn.md')
+    )
+    
+    
+    @classmethod
+    def validate(cls) -> bool:
+        """验证提示词文件是否存在"""
+        system_file = Path(cls.SYSTEM_PROMPT_FILE)
+        # 至少一个系统提示词文件需要存在
+        if not system_file.exists() :
+            return False
+        
+        return True
+    
+    @classmethod
+    def get_system_prompt_path(cls) -> Path:
+        """获取系统提示词文件路径（优先使用主文件，否则使用备用文件）"""
+        system_file = Path(cls.SYSTEM_PROMPT_FILE)
+        
+        if system_file.exists():
+            return system_file
+        else:
+            raise FileNotFoundError(f"系统提示词文件不存在: {cls.SYSTEM_PROMPT_FILE}")
+    
+    @classmethod
+    def get_user_prompt_template_path(cls) -> Path:
+        """获取用户提示词模板文件路径"""
+        return Path(cls.USER_PROMPT_TEMPLATE_FILE)
+
+
+# ============================================
 # 交易配置
 # ============================================
 class TradingConfig:
@@ -231,6 +279,7 @@ class Config:
     # 各子配置
     binance = BinanceConfig
     deepseek = DeepseekConfig
+    prompt = PromptConfig
     trading = TradingConfig
     execution = ExecutionConfig
     risk_management = RiskManagementConfig
@@ -254,6 +303,10 @@ class Config:
         # 验证 Deepseek 配置
         if not cls.deepseek.validate():
             errors.append("Deepseek API 密钥未正确配置")
+        
+        # 验证提示词配置
+        if not cls.prompt.validate():
+            errors.append("提示词模板文件未找到")
         
         # 验证交易对配置
         if not cls.trading.SYMBOLS:
@@ -283,6 +336,11 @@ class Config:
                 'max_tokens': cls.deepseek.MAX_TOKENS,
                 'temperature': cls.deepseek.TEMPERATURE,
                 'timeout': cls.deepseek.TIMEOUT
+            },
+            'prompt': {
+                'template_dir': str(cls.prompt.TEMPLATE_DIR),
+                'system_prompt_file': cls.prompt.SYSTEM_PROMPT_FILE,
+                'user_prompt_template_file': cls.prompt.USER_PROMPT_TEMPLATE_FILE,
             },
             'trading': {
                 'symbols': cls.trading.SYMBOLS,
@@ -326,6 +384,15 @@ class Config:
         print(f"  - 币安 API: {'✓ 已配置' if cls.binance.validate() else '✗ 未配置'}")
         print(f"  - 币安测试网: {'✓ 已启用' if cls.binance.TESTNET else '✗ 未启用'}")
         print(f"  - Deepseek API: {'✓ 已配置' if cls.deepseek.validate() else '✗ 未配置'}")
+        
+        print(f"\n📝 提示词配置:")
+        print(f"  - 模板目录: {cls.prompt.TEMPLATE_DIR}")
+        print(f"  - 系统提示词: {'✓ 已配置' if cls.prompt.validate() else '✗ 未找到'}")
+        try:
+            system_prompt_path = cls.prompt.get_system_prompt_path()
+            print(f"  - 使用文件: {system_prompt_path.name}")
+        except FileNotFoundError:
+            print(f"  - 使用文件: 未找到")
         
         print(f"\n🎯 执行配置:")
         print(f"  - 平台: {cls.execution.PLATFORM}")
