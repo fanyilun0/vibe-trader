@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 class PromptManager:
     """提示词管理器"""
     
+    # 数据点数量控制常量
+    INTRADAY_DATA_POINTS = 10  # 日内数据点数量（3分钟间隔）
+    LONGTERM_DATA_POINTS = 10  # 长期数据点数量（4小时间隔）
+    
     def __init__(self, template_dir: Optional[str] = None):
         """
         初始化提示词管理器
@@ -45,6 +49,7 @@ class PromptManager:
         self.user_prompt_template = self._load_user_prompt_template()
         
         logger.info(f"提示词管理器初始化完成 (template_dir={self.template_dir})")
+        logger.info(f"数据点配置: 日内={self.INTRADAY_DATA_POINTS}个, 长期={self.LONGTERM_DATA_POINTS}个")
     
     def _load_system_prompt(self) -> str:
         """
@@ -133,10 +138,21 @@ class PromptManager:
             格式化的币种数据字符串
         """
         # 格式化列表数据
-        def format_list(data_list, precision=2):
-            """格式化数组数据（单行显示）"""
+        def format_list(data_list, precision=2, limit=None):
+            """
+            格式化数组数据（单行显示）
+            
+            Args:
+                data_list: 原始数据列表
+                precision: 数值精度
+                limit: 限制数据点数量（None表示不限制，取最新的N个）
+            """
             if not data_list:
                 return "[]"
+            
+            # 如果设置了限制，只取最新的N个数据点
+            if limit is not None and len(data_list) > limit:
+                data_list = data_list[-limit:]
             
             formatted = []
             for value in data_list:
@@ -161,15 +177,15 @@ class PromptManager:
 
 **日内序列(3 分钟间隔,最旧 → 最新):**
 
-中间价:{format_list(market_features.get('mid_prices_list', []), 2)}
+中间价:{format_list(market_features.get('mid_prices_list', []), 2, self.INTRADAY_DATA_POINTS)}
 
-EMA 指标(20 周期):{format_list(market_features.get('ema20_list', []), 3)}
+EMA 指标(20 周期):{format_list(market_features.get('ema20_list', []), 3, self.INTRADAY_DATA_POINTS)}
 
-MACD 指标:{format_list(market_features.get('macd_list', []), 3)}
+MACD 指标:{format_list(market_features.get('macd_list', []), 3, self.INTRADAY_DATA_POINTS)}
 
-RSI 指标(7 周期):{format_list(market_features.get('rsi_7_period_list', []), 3)}
+RSI 指标(7 周期):{format_list(market_features.get('rsi_7_period_list', []), 3, self.INTRADAY_DATA_POINTS)}
 
-RSI 指标(14 周期):{format_list(market_features.get('rsi_14_period_list', []), 3)}
+RSI 指标(14 周期):{format_list(market_features.get('rsi_14_period_list', []), 3, self.INTRADAY_DATA_POINTS)}
 
 **长期背景(4 小时时间框架):**
 
@@ -179,124 +195,15 @@ RSI 指标(14 周期):{format_list(market_features.get('rsi_14_period_list', [])
 
 当前成交量:{market_features.get('long_term_current_volume', 0)} vs. 平均成交量:{market_features.get('long_term_average_volume', 0)}
 
-MACD 指标:{format_list(market_features.get('long_term_macd_list', []), 3)}
+MACD 指标:{format_list(market_features.get('long_term_macd_list', []), 3, self.LONGTERM_DATA_POINTS)}
 
-RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_list', []), 3)}
+RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_list', []), 3, self.LONGTERM_DATA_POINTS)}
 
 ---
 """
         return section
     
-    def build_account_section(
-        self,
-        account_features: Dict[str, Any],
-        exit_plans: Dict[str, Dict[str, Any]] = None
-    ) -> str:
-        """
-        构建账户信息部分
-        
-        Args:
-            account_features: 账户特征数据
-            exit_plans: 持仓的退出计划字典 {symbol: exit_plan}
-            
-        Returns:
-            格式化的账户信息字符串
-        """
-        # 提取持仓信息
-        positions = account_features.get('list_of_position_dictionaries', [])
-        
-        if exit_plans is None:
-            exit_plans = {}
-        
-        # 格式化持仓信息为详细字典格式（与参考文件一致）
-        positions_text = ""
-        positions_without_exit_plan = []  # 记录缺少退出计划的持仓
-        
-        if positions:
-            positions_text = "\n\n当前持仓及执行情况: \n\n"
-            for pos in positions:
-                symbol = pos.get('symbol', 'N/A')
-                
-                exit_plan = exit_plans.get(symbol, {})
-                
-                # 检查是否缺少退出计划
-                has_exit_plan = bool(exit_plan and exit_plan.get('profit_target') and exit_plan.get('stop_loss'))
-                if not has_exit_plan:
-                    positions_without_exit_plan.append(symbol.replace('USDT', ''))
-                
-                # 获取当前价格和清算价格
-                # 尝试从多个字段获取当前价格
-                current_price = pos.get('current_price') or pos.get('mark_price', 0)
-                liquidation_price = pos.get('liquidation_price', 0)
-                
-                # 持仓数量（多头为正，空头为负）
-                # 注意：这里显示的数量用于AI决策，会进行适当的精度格式化以便阅读
-                # 实际交易时会使用API返回的原始精度数量，确保完全平仓
-                quantity = pos.get('quantity')
-                side = pos.get('side', '').upper()
-                
-                # 格式化显示数量（保留足够精度，但去除不必要的尾部零）
-                # 例如: 3.299000 -> 3.299, 1.100000 -> 1.1
-                display_quantity = float(f"{quantity:.6f}".rstrip('0').rstrip('.'))
-                quantity = display_quantity if side == 'LONG' else -display_quantity
-                
-                # 构建详细的持仓字典（包含所有执行细节）
-                position_dict = {
-                    'confidence': exit_plan.get('confidence', 0),  # 置信度
-                    'current_price': round(current_price, 5),  # 当前价格
-                    'entry_oid': pos.get('entry_oid', -1),  # 入场订单ID
-                    'entry_price': round(pos.get('entry_price', 0), 2),  # 入场价格
-                    'exit_plan': {
-                        'profit_target': exit_plan.get('profit_target', 0),
-                        'stop_loss': exit_plan.get('stop_loss', 0),
-                        'invalidation_condition': exit_plan.get('invalidation_condition', '')
-                    },
-                    'leverage': pos.get('leverage', 1),  # 杠杆倍数
-                    'liquidation_price': round(liquidation_price, 2),  # 清算价格
-                    'notional_usd': round(pos.get('notional_usd', 0), 2),  # 名义价值（美元）
-                    'quantity': quantity,  # 持仓数量（多头为正，空头为负）
-                    'risk_usd': exit_plan.get('risk_usd', 0),  # 风险金额
-                    'sl_oid': pos.get('sl_oid', -1),  # 止损订单ID
-                    'symbol': symbol.replace('USDT', ''),  # 币种符号（不含USDT）
-                    'tp_oid': pos.get('tp_oid', -1),  # 止盈订单ID
-                    'unrealized_pnl': round(pos.get('unrealized_pnl', 0), 2),  # 未实现盈亏
-                    'wait_for_fill': pos.get('wait_for_fill', False),  # 等待成交标志
-                }
-                
-                # 格式化为单行字典字符串
-                positions_text += f"{position_dict} \n"
-            
-            # 如果有持仓缺少退出计划，添加特别提示
-            if positions_without_exit_plan:
-                positions_text += f"注意：以下持仓缺少退出计划（profit_target 和 stop_loss 为0或未设置）：{', '.join(positions_without_exit_plan)}\n"
-                positions_text += "请在本次决策中为这些持仓补充合理的退出计划（包括 profit_target、stop_loss 和 invalidation_condition）。\n"
-        else:
-            positions_text = "\n\n无持仓\n"
-        
-        # 获取夏普比率（如果存在）
-        sharpe_ratio = account_features.get('sharpe_ratio', 0)
-        sharpe_text = f"\n\n夏普比率: {sharpe_ratio:.3f}"
-        
-        # 获取风险管理约束（从配置）
-        max_position_size_pct = RiskManagementConfig.MAX_POSITION_SIZE_PCT * 100  # 转换为百分比
-        max_open_positions = RiskManagementConfig.MAX_OPEN_POSITIONS
-        
-        section = f"""### 这是你的账户信息和业绩
-
-**风险管理约束:**
-- 最大单笔仓位规模: 账户价值的 {max_position_size_pct:.0f}%
-- 最大持仓数量: {max_open_positions}
-
-当前总回报率(百分比): {account_features.get('total_return_percent', 0):.2f}%
-
-可用现金: {account_features.get('available_cash', 0):.2f}
-
-当前账户价值: {account_features.get('account_value', 0):.2f}
-{positions_text}{sharpe_text}"""
-        
-        return section
-    
-    def build_user_prompt(
+    def _build_user_prompt_legacy(
         self,
         market_features_by_coin: Dict[str, Dict[str, Any]],
         account_features: Dict[str, Any],
@@ -304,16 +211,9 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         exit_plans: Dict[str, Dict[str, Any]] = None
     ) -> str:
         """
-        构建完整的用户提示词
+        旧版硬编码方式构建用户提示词（向后兼容）
         
-        Args:
-            market_features_by_coin: 按币种组织的市场特征数据 {"BTC": {...}, "ETH": {...}}
-            account_features: 账户特征数据
-            global_state: 全局状态（交易时长、调用次数等）
-            exit_plans: 持仓的退出计划字典 {symbol: exit_plan}
-            
-        Returns:
-            完整的用户提示词
+        当模板文件不存在时使用此方法
         """
         # 构建标题部分
         minutes_trading = global_state.get('minutes_trading', 0)
@@ -332,6 +232,8 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
 **以下所有价格或信号数据的排序方式为:最旧 → 最新**
 
 **时间框架说明:** 除非在章节标题中另有说明,日内序列以 **3 分钟间隔**提供。如果某个币种使用不同的间隔,会在该币种的章节中明确说明。
+
+**数据优化说明:** 为优化决策速度,每个指标序列统一提供最新的{self.INTRADAY_DATA_POINTS}个数据点,足以捕捉关键趋势和动量变化。
 
 ---
 
@@ -353,13 +255,247 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
             coin_section = self.build_coin_data_section(coin_symbol, market_features)
             coin_sections.append(coin_section)
         
-        # 构建账户信息部分（传递exit_plans）
-        account_section = self.build_account_section(account_features, exit_plans)
+        # 构建持仓文本
+        positions_text = self._build_positions_text(account_features, exit_plans)
+        
+        # 风险管理参数
+        max_position_size_pct = RiskManagementConfig.MAX_POSITION_SIZE_PCT * 100
+        max_open_positions = RiskManagementConfig.MAX_OPEN_POSITIONS
+        
+        # 账户信息
+        total_return_pct = account_features.get('total_return_percent', 0)
+        available_cash = account_features.get('available_cash', 0)
+        account_value = account_features.get('account_value', 0)
+        sharpe_ratio = account_features.get('sharpe_ratio', 0)
+        
+        account_section = f"""### 这是你的账户信息和业绩
+
+**风险管理约束:**
+- 最大单笔仓位规模: 账户价值的 {max_position_size_pct:.0f}%
+- 最大持仓数量: {max_open_positions}
+
+当前总回报率(百分比): {total_return_pct:.2f}%
+
+可用现金: {available_cash:.2f}
+
+当前账户价值: {account_value:.2f}
+
+{positions_text}
+
+夏普比率: {sharpe_ratio:.3f}"""
         
         # 组合完整的用户提示词
         user_prompt = header + "\n".join(coin_sections) + "\n" + account_section
         
         return user_prompt
+    
+    def build_user_prompt(
+        self,
+        market_features_by_coin: Dict[str, Dict[str, Any]],
+        account_features: Dict[str, Any],
+        global_state: Dict[str, Any],
+        exit_plans: Dict[str, Dict[str, Any]] = None
+    ) -> str:
+        """
+        构建完整的用户提示词（基于模板文件）
+        
+        Args:
+            market_features_by_coin: 按币种组织的市场特征数据 {"BTC": {...}, "ETH": {...}}
+            account_features: 账户特征数据
+            global_state: 全局状态（交易时长、调用次数等）
+            exit_plans: 持仓的退出计划字典 {symbol: exit_plan}
+            
+        Returns:
+            完整的用户提示词
+        """
+        # 如果没有加载模板，使用旧的硬编码方式（向后兼容）
+        if not self.user_prompt_template:
+            return self._build_user_prompt_legacy(market_features_by_coin, account_features, global_state, exit_plans)
+        
+        # 准备模板占位符数据
+        placeholders = self._prepare_template_placeholders(
+            market_features_by_coin,
+            account_features,
+            global_state,
+            exit_plans
+        )
+        
+        # 替换模板占位符
+        user_prompt = self._replace_placeholders(self.user_prompt_template, placeholders)
+        
+        return user_prompt
+    
+    def _prepare_template_placeholders(
+        self,
+        market_features_by_coin: Dict[str, Dict[str, Any]],
+        account_features: Dict[str, Any],
+        global_state: Dict[str, Any],
+        exit_plans: Dict[str, Dict[str, Any]] = None
+    ) -> Dict[str, str]:
+        """
+        准备模板占位符数据
+        
+        Args:
+            market_features_by_coin: 市场特征数据
+            account_features: 账户特征数据
+            global_state: 全局状态
+            exit_plans: 退出计划
+            
+        Returns:
+            占位符字典 {placeholder_name: value}
+        """
+        # 基础信息
+        minutes_trading = global_state.get('minutes_trading', 0)
+        current_timestamp = global_state.get('current_timestamp', datetime.now().isoformat())
+        invocation_count = global_state.get('invocation_count', 0)
+        
+        # 恐惧贪婪指数
+        fear_greed_value = global_state.get('fear_greed_value', 50)
+        fear_greed_classification = global_state.get('fear_greed_classification', 'Neutral')
+        fear_greed_interpretation = self._interpret_fear_greed(fear_greed_value)
+        
+        # 构建币种数据部分
+        coin_sections = []
+        for coin_symbol, market_features in market_features_by_coin.items():
+            coin_section = self.build_coin_data_section(coin_symbol, market_features)
+            coin_sections.append(coin_section)
+        coin_data_sections = "\n".join(coin_sections)
+        
+        # 构建持仓文本
+        positions_text = self._build_positions_text(account_features, exit_plans)
+        
+        # 风险管理参数
+        max_position_size_pct = RiskManagementConfig.MAX_POSITION_SIZE_PCT * 100
+        max_open_positions = RiskManagementConfig.MAX_OPEN_POSITIONS
+        
+        # 账户信息
+        total_return_pct = account_features.get('total_return_percent', 0)
+        available_cash = account_features.get('available_cash', 0)
+        account_value = account_features.get('account_value', 0)
+        sharpe_ratio = account_features.get('sharpe_ratio', 0)
+        
+        # 组装所有占位符
+        placeholders = {
+            'MINUTES_TRADING': str(minutes_trading),
+            'CURRENT_TIMESTAMP': str(current_timestamp),
+            'INVOCATION_COUNT': str(invocation_count),
+            'DATA_POINTS': str(self.INTRADAY_DATA_POINTS),
+            'FEAR_GREED_VALUE': str(fear_greed_value),
+            'FEAR_GREED_CLASSIFICATION': str(fear_greed_classification),
+            'FEAR_GREED_INTERPRETATION': fear_greed_interpretation,
+            'COIN_DATA_SECTIONS': coin_data_sections,
+            'MAX_POSITION_SIZE_PCT': f"{max_position_size_pct:.0f}",
+            'MAX_OPEN_POSITIONS': str(max_open_positions),
+            'TOTAL_RETURN_PCT': f"{total_return_pct:.2f}",
+            'AVAILABLE_CASH': f"{available_cash:.2f}",
+            'ACCOUNT_VALUE': f"{account_value:.2f}",
+            'POSITIONS_TEXT': positions_text,
+            'SHARPE_RATIO': f"{sharpe_ratio:.3f}"
+        }
+        
+        return placeholders
+    
+    def _replace_placeholders(self, template: str, placeholders: Dict[str, str]) -> str:
+        """
+        替换模板中的占位符
+        
+        Args:
+            template: 模板字符串
+            placeholders: 占位符字典
+            
+        Returns:
+            替换后的字符串
+        """
+        result = template
+        for key, value in placeholders.items():
+            placeholder = f"{{{{{key}}}}}"  # {{KEY}}
+            result = result.replace(placeholder, str(value))
+        
+        return result
+    
+    def _build_positions_text(
+        self,
+        account_features: Dict[str, Any],
+        exit_plans: Dict[str, Dict[str, Any]] = None
+    ) -> str:
+        """
+        构建持仓文本部分
+        
+        Args:
+            account_features: 账户特征数据
+            exit_plans: 退出计划字典
+            
+        Returns:
+            格式化的持仓文本
+        """
+        # 提取持仓信息
+        positions = account_features.get('list_of_position_dictionaries', [])
+        
+        if exit_plans is None:
+            exit_plans = {}
+        
+        # 格式化持仓信息
+        positions_text = ""
+        positions_without_exit_plan = []
+        
+        if positions:
+            positions_text = "当前持仓及执行情况: \n\n"
+            for pos in positions:
+                symbol = pos.get('symbol', 'N/A')
+                
+                exit_plan = exit_plans.get(symbol, {})
+                
+                # 检查是否缺少退出计划
+                has_exit_plan = bool(exit_plan and exit_plan.get('profit_target') and exit_plan.get('stop_loss'))
+                if not has_exit_plan:
+                    positions_without_exit_plan.append(symbol.replace('USDT', ''))
+                
+                # 获取当前价格和清算价格
+                current_price = pos.get('current_price') or pos.get('mark_price', 0)
+                liquidation_price = pos.get('liquidation_price', 0)
+                
+                # 持仓数量
+                quantity = pos.get('quantity')
+                side = pos.get('side', '').upper()
+                
+                # 格式化显示数量
+                display_quantity = float(f"{quantity:.6f}".rstrip('0').rstrip('.'))
+                quantity = display_quantity if side == 'LONG' else -display_quantity
+                
+                # 构建详细的持仓字典
+                position_dict = {
+                    'confidence': exit_plan.get('confidence', 0),
+                    'current_price': round(current_price, 5),
+                    'entry_oid': pos.get('entry_oid', -1),
+                    'entry_price': round(pos.get('entry_price', 0), 2),
+                    'exit_plan': {
+                        'profit_target': exit_plan.get('profit_target', 0),
+                        'stop_loss': exit_plan.get('stop_loss', 0),
+                        'invalidation_condition': exit_plan.get('invalidation_condition', '')
+                    },
+                    'leverage': pos.get('leverage', 1),
+                    'liquidation_price': round(liquidation_price, 2),
+                    'notional_usd': round(pos.get('notional_usd', 0), 2),
+                    'quantity': quantity,
+                    'risk_usd': exit_plan.get('risk_usd', 0),
+                    'sl_oid': pos.get('sl_oid', -1),
+                    'symbol': symbol.replace('USDT', ''),
+                    'tp_oid': pos.get('tp_oid', -1),
+                    'unrealized_pnl': round(pos.get('unrealized_pnl', 0), 2),
+                    'wait_for_fill': pos.get('wait_for_fill', False),
+                }
+                
+                # 格式化为单行字典字符串
+                positions_text += f"{position_dict} \n"
+            
+            # 如果有持仓缺少退出计划，添加特别提示
+            if positions_without_exit_plan:
+                positions_text += f"\n注意：以下持仓缺少退出计划（profit_target 和 stop_loss 为0或未设置）：{', '.join(positions_without_exit_plan)}\n"
+                positions_text += "请在本次决策中为这些持仓补充合理的退出计划（包括 profit_target、stop_loss 和 invalidation_condition）。\n"
+        else:
+            positions_text = "无持仓\n"
+        
+        return positions_text
     
     def get_system_prompt(self) -> str:
         """
