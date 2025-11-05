@@ -173,6 +173,47 @@ class ExecutionManager:
         if hasattr(self.adapter, 'save_state'):
             self.adapter.save_state(filepath)
     
+    def get_trade_statistics(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        获取交易统计数据
+        
+        Args:
+            symbols: 要统计的交易对列表（如果为None，则使用当前持仓的交易对）
+            
+        Returns:
+            包含交易统计数据的字典：
+            {
+                'total_realized_pnl': float,  # 总已实现盈亏
+                'total_commission': float,    # 总手续费
+                'total_trades': int,          # 总交易次数
+                'net_pnl': float,             # 净盈亏（已实现盈亏 - 手续费）
+                'by_symbol': {}               # 按交易对统计（如果支持）
+            }
+        """
+        logger.debug("获取交易统计数据...")
+        
+        try:
+            if hasattr(self.adapter, 'get_trade_statistics'):
+                return self.adapter.get_trade_statistics(symbols)
+            else:
+                logger.warning("适配器不支持获取交易统计")
+                return {
+                    'total_realized_pnl': 0.0,
+                    'total_commission': 0.0,
+                    'total_trades': 0,
+                    'net_pnl': 0.0,
+                    'by_symbol': {}
+                }
+        except Exception as e:
+            logger.error(f"获取交易统计失败: {e}")
+            return {
+                'total_realized_pnl': 0.0,
+                'total_commission': 0.0,
+                'total_trades': 0,
+                'net_pnl': 0.0,
+                'by_symbol': {}
+            }
+    
     @property
     def initial_balance(self) -> float:
         """

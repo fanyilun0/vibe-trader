@@ -694,6 +694,44 @@ class BinanceDataIngestion:
             'step_size': 0.001
         }
     
+    def get_my_trades(self, symbol: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        获取账户的历史成交记录
+        
+        Args:
+            symbol: 交易对符号（如 BTCUSDT）
+            limit: 获取的记录数量（默认100，最大1000）
+            
+        Returns:
+            历史成交记录列表，每条记录包含：
+            {
+                'symbol': str,
+                'id': int,
+                'orderId': int,
+                'side': str,  # 'BUY' or 'SELL'
+                'price': str,
+                'qty': str,
+                'realizedPnl': str,  # 已实现盈亏
+                'marginAsset': str,
+                'quoteQty': str,
+                'commission': str,  # 手续费
+                'commissionAsset': str,
+                'time': int,
+                'buyer': bool,
+                'maker': bool
+            }
+        """
+        logger.debug(f"获取历史成交记录: {symbol} limit={limit}")
+        
+        def _get():
+            return self.client.futures_account_trades(symbol=symbol, limit=limit)
+        
+        try:
+            return self._retry_request(_get)
+        except Exception as e:
+            logger.warning(f"获取历史成交记录失败: {e}")
+            return []
+    
     def get_account_data(self) -> Dict[str, Any]:
         """
         获取账户数据并提取关键信息（期货账户）

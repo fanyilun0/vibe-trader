@@ -549,6 +549,107 @@ class BinanceAdapter(ExecutionInterface):
         # 如果需要最新数据，调用方应该调用 refresh_account_data()
         pass
     
+    def get_trade_statistics(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        获取交易统计数据（从历史成交记录计算）
+        
+        Args:
+            symbols: 要统计的交易对列表（如果为None，则使用当前持仓的交易对）
+            
+        Returns:
+            包含交易统计数据的字典：
+            {
+                'total_realized_pnl': float,  # 总已实现盈亏
+                'total_commission': float,    # 总手续费
+                'total_trades': int,          # 总交易次数（成交次数）
+                'net_pnl': float,             # 净盈亏（已实现盈亏 - 手续费）
+                'by_symbol': {                # 按交易对统计
+                    'BTCUSDT': {
+                        'realized_pnl': float,
+                        'commission': float,
+                        'trades': int
+                    }
+                }
+            }
+        """
+        logger.debug("获取交易统计数据...")
+        
+        try:
+            # 如果没有指定交易对，使用当前持仓的交易对
+            if symbols is None:
+                positions = self.get_open_positions()
+                symbols = [pos['symbol'] for pos in positions]
+            
+            # 如果仍然没有交易对，返回空统计
+            if not symbols:
+                return {
+                    'total_realized_pnl': 0.0,
+                    'total_commission': 0.0,
+                    'total_trades': 0,
+                    'net_pnl': 0.0,
+                    'by_symbol': {}
+                }
+            
+            total_realized_pnl = 0.0
+            total_commission = 0.0
+            total_trades = 0
+            by_symbol = {}
+            
+            # 遍历每个交易对获取历史成交记录
+            for symbol in symbols:
+                try:
+                    trades = self.data_client.get_my_trades(symbol, limit=500)
+                    
+                    symbol_realized_pnl = 0.0
+                    symbol_commission = 0.0
+                    symbol_trades = len(trades)
+                    
+                    for trade in trades:
+                        # 累计已实现盈亏
+                        realized_pnl = float(trade.get('realizedPnl', 0))
+                        symbol_realized_pnl += realized_pnl
+                        
+                        # 累计手续费
+                        commission = float(trade.get('commission', 0))
+                        symbol_commission += commission
+                    
+                    # 更新总计
+                    total_realized_pnl += symbol_realized_pnl
+                    total_commission += symbol_commission
+                    total_trades += symbol_trades
+                    
+                    # 保存分币种统计
+                    by_symbol[symbol] = {
+                        'realized_pnl': symbol_realized_pnl,
+                        'commission': symbol_commission,
+                        'trades': symbol_trades
+                    }
+                    
+                except Exception as e:
+                    logger.warning(f"获取 {symbol} 交易历史失败: {e}")
+                    continue
+            
+            # 计算净盈亏（已实现盈亏 - 手续费）
+            net_pnl = total_realized_pnl - total_commission
+            
+            return {
+                'total_realized_pnl': total_realized_pnl,
+                'total_commission': total_commission,
+                'total_trades': total_trades,
+                'net_pnl': net_pnl,
+                'by_symbol': by_symbol
+            }
+            
+        except Exception as e:
+            logger.error(f"获取交易统计失败: {e}")
+            return {
+                'total_realized_pnl': 0.0,
+                'total_commission': 0.0,
+                'total_trades': 0,
+                'net_pnl': 0.0,
+                'by_symbol': {}
+            }
+    
     @property
     def initial_balance(self) -> float:
         """获取初始余额"""

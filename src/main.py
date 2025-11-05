@@ -468,17 +468,42 @@ class VibeTrader:
                     self.execution_manager.refresh_account_state()
                     final_account_state = self.execution_manager.get_account_state()
                     
+                    # 获取交易统计数据
+                    trade_stats = self.execution_manager.get_trade_statistics()
+                    
                     self.logger.info(f"\n💰 最终账户状态:")
                     self.logger.info(f"   总权益: ${final_account_state['total_equity']:,.2f}")
                     self.logger.info(f"   可用余额: ${final_account_state['available_balance']:,.2f}")
+                    
+                    # 显示未实现盈亏
                     if final_account_state['unrealized_pnl'] != 0:
                         pnl = final_account_state['unrealized_pnl']
                         pnl_sign = "+" if pnl >= 0 else ""
                         self.logger.info(f"   未实现盈亏: {pnl_sign}${pnl:.2f}")
                     
+                    # 显示已实现盈亏和手续费
+                    if trade_stats['total_trades'] > 0:
+                        realized_pnl = trade_stats['total_realized_pnl']
+                        commission = trade_stats['total_commission']
+                        net_pnl = trade_stats['net_pnl']
+                        
+                        realized_sign = "+" if realized_pnl >= 0 else ""
+                        net_sign = "+" if net_pnl >= 0 else ""
+                        
+                        self.logger.info(f"\n📊 交易统计:")
+                        self.logger.info(f"   已实现盈亏: {realized_sign}${realized_pnl:.2f}")
+                        self.logger.info(f"   累计手续费: ${commission:.2f}")
+                        self.logger.info(f"   净盈亏: {net_sign}${net_pnl:.2f}")
+                        self.logger.info(f"   交易次数: {trade_stats['total_trades']}")
+                        
+                        # 计算总盈亏（已实现 + 未实现）
+                        total_pnl = net_pnl + final_account_state['unrealized_pnl']
+                        total_sign = "+" if total_pnl >= 0 else ""
+                        self.logger.info(f"   总盈亏: {total_sign}${total_pnl:.2f}")
+                    
                     # 显示持仓变化
                     if final_account_state['position_count'] > 0:
-                        self.logger.info(f"   持仓数量: {final_account_state['position_count']}")
+                        self.logger.info(f"\n   持仓数量: {final_account_state['position_count']}")
                     
                     # 使用最新的账户状态记录性能
                     performance_metrics = {

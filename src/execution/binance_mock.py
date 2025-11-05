@@ -612,6 +612,34 @@ class BinanceMockExecution:
         """
         return [order.to_dict() for order in self.orders]
     
+    def get_trade_statistics(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        获取交易统计数据（兼容BinanceAdapter接口）
+        
+        Args:
+            symbols: 要统计的交易对列表（模拟模式下此参数被忽略，统计所有交易）
+            
+        Returns:
+            包含交易统计数据的字典：
+            {
+                'total_realized_pnl': float,  # 总已实现盈亏
+                'total_commission': float,    # 总手续费
+                'total_trades': int,          # 总交易次数
+                'net_pnl': float,             # 净盈亏（已实现盈亏 - 手续费）
+                'by_symbol': {}               # 模拟模式下不提供分币种统计
+            }
+        """
+        # 计算净盈亏（已实现盈亏 - 手续费）
+        net_pnl = self.total_realized_pnl - self.total_fees
+        
+        return {
+            'total_realized_pnl': self.total_realized_pnl,
+            'total_commission': self.total_fees,
+            'total_trades': self.total_trades,
+            'net_pnl': net_pnl,
+            'by_symbol': {}  # 模拟模式不提供分币种统计
+        }
+    
     def save_state(self, filepath: Optional[str] = None):
         """
         保存状态到文件
