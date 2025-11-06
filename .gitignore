@@ -17,6 +17,10 @@ prompts/
 responses/
 *.prompt.txt
 
+# PNL
+pnl/*.json
+pnl/historical_trades/*.json
+
 # Distribution / packaging
 .Python
 build/

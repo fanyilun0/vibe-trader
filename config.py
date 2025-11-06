@@ -170,7 +170,7 @@ class TradingConfig:
     LONG_TERM_LIMIT = 100   # 长期K线数量
     
     # 调度间隔 (秒)
-    SCHEDULE_INTERVAL = 600  # 每10分钟执行一次
+    SCHEDULE_INTERVAL = 360  # 每6分钟执行一次
     
     @classmethod
     def get_timeframes(cls) -> Dict[str, str]:
@@ -215,10 +215,10 @@ class RiskManagementConfig:
     MAX_POSITION_SIZE_PCT = 0.20  # 20%
     
     # 最大持仓数量
-    MAX_OPEN_POSITIONS = 3
+    MAX_OPEN_POSITIONS = 6
     
     # 最低决策置信度阈值
-    MIN_CONFIDENCE = 0.75  # 75%
+    MIN_CONFIDENCE = 0.6  # Recommended 75%
     
     # 允许交易的币种白名单
     ALLOWED_SYMBOLS: List[str] = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT', 'BNBUSDT']

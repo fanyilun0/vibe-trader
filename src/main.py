@@ -32,6 +32,7 @@ from src.ai_decision import create_ai_decision_core
 from src.execution.manager import create_execution_manager
 from src.risk_management import create_risk_manager
 from src.state_manager import create_state_manager
+from src.daily_pnl_tracker import create_daily_pnl_tracker
 
 # 配置日志
 def setup_logging():
@@ -123,6 +124,11 @@ class VibeTrader:
         
         # 风险管理器
         self.risk_manager = create_risk_manager()
+        
+        # 每日盈亏追踪器（传入执行适配器以获取历史成交记录）
+        self.pnl_tracker = create_daily_pnl_tracker(
+            execution_adapter=self.execution_manager.adapter
+        )
         
         # 交易配置
         self.symbols = Config.trading.SYMBOLS
@@ -461,7 +467,7 @@ class VibeTrader:
                                f"EMA20={features.get('current_ema20', 0):.2f}, "
                                f"RSI={features.get('current_rsi_7', 0):.2f}")
             
-            # 记录性能数据
+            # 记录性能数据和每日盈亏
             try:
                 # 如果执行了交易，需要刷新账户状态
                 if decision.action != 'HOLD':
@@ -513,8 +519,21 @@ class VibeTrader:
                         'position_count': final_account_state['position_count'],
                         'total_return': ((final_account_state['total_equity'] - initial_balance) / initial_balance) if initial_balance > 0 else 0
                     }
+                    
+                    # 记录每日盈亏数据（静默保存到文件）
+                    try:
+                        self.pnl_tracker.record_cycle(
+                            account_state=final_account_state,
+                            trade_stats=trade_stats,
+                            initial_balance=initial_balance,
+                            decision_action=decision.action
+                        )
+                    except Exception as e:
+                        self.logger.debug(f"记录每日盈亏数据失败: {e}")
                 else:
                     # 如果没有交易，使用当前账户状态记录性能
+                    trade_stats = self.execution_manager.get_trade_statistics()
+                    
                     performance_metrics = {
                         'account_value': account_state['total_equity'],
                         'available_balance': account_state['available_balance'],
@@ -522,6 +541,17 @@ class VibeTrader:
                         'position_count': account_state['position_count'],
                         'total_return': ((account_state['total_equity'] - initial_balance) / initial_balance) if initial_balance > 0 else 0
                     }
+                    
+                    # 记录每日盈亏数据（静默保存到文件）
+                    try:
+                        self.pnl_tracker.record_cycle(
+                            account_state=account_state,
+                            trade_stats=trade_stats,
+                            initial_balance=initial_balance,
+                            decision_action='HOLD'
+                        )
+                    except Exception as e:
+                        self.logger.debug(f"记录每日盈亏数据失败: {e}")
                 
                 self.state_manager.record_performance(performance_metrics)
                 
@@ -536,6 +566,14 @@ class VibeTrader:
                 self.execution_manager.save_state()
             except Exception as e:
                 self.logger.warning(f"保存执行状态失败: {e}")
+            
+            # 定期更新历史成交记录（每10个周期更新一次）
+            if invocation_count % 10 == 0:
+                try:
+                    self.logger.debug("更新历史成交记录...")
+                    self.pnl_tracker.update_historical_trades(symbols=self.symbols)
+                except Exception as e:
+                    self.logger.debug(f"更新历史成交记录失败: {e}")
             
             self.logger.info("\n" + "=" * 80)
             self.logger.info("交易周期完成")
