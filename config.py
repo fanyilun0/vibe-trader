@@ -116,7 +116,7 @@ class PromptConfig:
     # 系统提示词文件路径（可通过环境变量覆盖）
     SYSTEM_PROMPT_FILE = os.getenv(
         'SYSTEM_PROMPT_FILE',
-        str(TEMPLATE_DIR / 'nof1_system_prompt_cn.md')
+        str(TEMPLATE_DIR / 'nof1_system_prompt_cn2.0.md')
     )
     
     # 用户提示词模板文件路径（可通过环境变量覆盖）
