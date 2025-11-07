@@ -170,7 +170,7 @@ class TradingConfig:
     LONG_TERM_LIMIT = 100   # 长期K线数量
     
     # 调度间隔 (秒)
-    SCHEDULE_INTERVAL = 360  # 每6分钟执行一次
+    SCHEDULE_INTERVAL = 540  # 每9分钟执行一次
     
     @classmethod
     def get_timeframes(cls) -> Dict[str, str]:
@@ -212,7 +212,7 @@ class RiskManagementConfig:
     """风险管理配置"""
     
     # 最大单笔订单占账户价值百分比
-    MAX_POSITION_SIZE_PCT = 0.20  # 20%
+    MAX_POSITION_SIZE_PCT = 0.33  # Recommended 20%
     
     # 最大持仓数量
     MAX_OPEN_POSITIONS = 6
@@ -267,6 +267,42 @@ class StateConfig:
 
 
 # ============================================
+# 通知配置
+# ============================================
+class NotificationConfig:
+    """通知配置"""
+    
+    # ntfy.sh 配置
+    NTFY_ENABLED = os.getenv('NTFY_ENABLED', 'false').lower() == 'true'
+    NTFY_TOPIC = os.getenv('NTFY_TOPIC', '')
+    NTFY_BASE_URL = os.getenv('NTFY_BASE_URL', 'https://ntfy.sh')
+    
+    # 通知级别
+    # all: 所有决策都通知
+    # trades_only: 仅交易执行时通知（BUY/SELL/CLOSE_POSITION）
+    # important: 仅重要事件通知（交易执行成功、错误）
+    NTFY_LEVEL = os.getenv('NTFY_LEVEL', 'trades_only')
+    
+    @classmethod
+    def validate(cls) -> bool:
+        """验证配置是否有效"""
+        if not cls.NTFY_ENABLED:
+            return True  # 如果未启用，不需要验证
+        
+        if not cls.NTFY_TOPIC:
+            return False
+        
+        return True
+    
+    @classmethod
+    def get_topic_url(cls) -> str:
+        """获取完整的 topic URL"""
+        if not cls.NTFY_TOPIC:
+            return ""
+        return f"{cls.NTFY_BASE_URL.rstrip('/')}/{cls.NTFY_TOPIC}"
+
+
+# ============================================
 # 统一配置对象
 # ============================================
 class Config:
@@ -285,6 +321,7 @@ class Config:
     risk_management = RiskManagementConfig
     logging = LoggingConfig
     state = StateConfig
+    notification = NotificationConfig
     
     @classmethod
     def validate_all(cls) -> tuple[bool, List[str]]:
@@ -361,6 +398,11 @@ class Config:
             'state': {
                 'state_file': cls.state.STATE_FILE,
                 'backup_enabled': cls.state.BACKUP_ENABLED
+            },
+            'notification': {
+                'ntfy_enabled': cls.notification.NTFY_ENABLED,
+                'ntfy_topic': cls.notification.NTFY_TOPIC,
+                'ntfy_level': cls.notification.NTFY_LEVEL
             }
         }
     
@@ -408,6 +450,12 @@ class Config:
         print(f"\n📝 日志配置:")
         print(f"  - 日志级别: {cls.logging.LEVEL}")
         print(f"  - 日志文件: {cls.logging.LOG_FILE}")
+        
+        print(f"\n🔔 通知配置:")
+        print(f"  - ntfy.sh: {'✓ 已启用' if cls.notification.NTFY_ENABLED else '✗ 未启用'}")
+        if cls.notification.NTFY_ENABLED:
+            print(f"  - Topic: {cls.notification.NTFY_TOPIC}")
+            print(f"  - 通知级别: {cls.notification.NTFY_LEVEL}")
         
         print("\n" + "=" * 60 + "\n")
 

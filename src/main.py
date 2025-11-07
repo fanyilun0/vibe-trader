@@ -33,6 +33,7 @@ from src.execution.manager import create_execution_manager
 from src.risk_management import create_risk_manager
 from src.state_manager import create_state_manager
 from src.daily_pnl_tracker import create_daily_pnl_tracker
+from src.notification import create_notification_manager
 
 # 配置日志
 def setup_logging():
@@ -130,6 +131,9 @@ class VibeTrader:
             execution_adapter=self.execution_manager.adapter
         )
         
+        # 通知管理器
+        self.notification_manager = create_notification_manager()
+        
         # 交易配置
         self.symbols = Config.trading.SYMBOLS
         self.schedule_interval = Config.trading.SCHEDULE_INTERVAL
@@ -157,6 +161,12 @@ class VibeTrader:
             # 增加调用计数
             invocation_count = self.state_manager.increment_invocation()
             self.logger.info(f"第 {invocation_count} 次调用")
+            
+            # 发送周期开始通知（仅在 all 级别）
+            try:
+                self.notification_manager.notify_cycle_start(invocation_count)
+            except Exception as e:
+                self.logger.debug(f"发送周期开始通知失败: {e}")
             
             # 步骤 1: 数据摄取（多币种）
             self.logger.info("\n[步骤 1/6] 数据摄取...")
@@ -308,6 +318,18 @@ class VibeTrader:
             if not decisions:
                 self.logger.warning("⚠️  AI未返回任何决策，本周期保持观望")
                 self.logger.info("本周期结束，不执行任何操作\n")
+                
+                # 发送观望通知
+                try:
+                    if self.notification_manager.level == 'all':
+                        self.notification_manager.notify_decision(
+                            {'action': 'HOLD', 'confidence': 0, 'rationale': 'AI未返回任何决策'},
+                            account_state,
+                            0
+                        )
+                except Exception as e:
+                    self.logger.debug(f"发送通知失败: {e}")
+                
                 return
             
             # 记录所有币种的决策
@@ -392,6 +414,16 @@ class VibeTrader:
             if not passed:
                 self.logger.error(f"❌ 决策被风险管理器拒绝: {reason}")
                 self.logger.info("本周期结束,不执行任何操作")
+                
+                # 发送风险拒绝通知
+                try:
+                    self.notification_manager.notify_error(
+                        f"决策被风险管理器拒绝: {reason}",
+                        f"操作: {decision.action} {decision.symbol if decision.symbol else ''}"
+                    )
+                except Exception as e:
+                    self.logger.debug(f"发送通知失败: {e}")
+                
                 return
             
             self.logger.info("✅ 风险检查通过")
@@ -404,6 +436,16 @@ class VibeTrader:
             
             if decision.action == 'HOLD':
                 self.logger.info("💡 决策: HOLD - 保持观望")
+                
+                # 发送HOLD通知（仅在 all 级别）
+                try:
+                    self.notification_manager.notify_decision(
+                        decision.model_dump() if hasattr(decision, 'model_dump') else decision,
+                        account_state,
+                        current_price
+                    )
+                except Exception as e:
+                    self.logger.debug(f"发送通知失败: {e}")
             else:
                 # 显示决策信息
                 self.logger.info("📝 AI 交易决策:")
@@ -415,6 +457,16 @@ class VibeTrader:
                     self.logger.info(f"   止损: {decision.exit_plan.stop_loss}")
                     if decision.exit_plan.take_profit:
                         self.logger.info(f"   止盈: {decision.exit_plan.take_profit}")
+                
+                # 发送决策通知
+                try:
+                    self.notification_manager.notify_decision(
+                        decision.model_dump() if hasattr(decision, 'model_dump') else decision,
+                        account_state,
+                        current_price
+                    )
+                except Exception as e:
+                    self.logger.debug(f"发送决策通知失败: {e}")
                 
                 # 执行订单 (通过执行管理器)
                 try:
@@ -435,6 +487,20 @@ class VibeTrader:
                             self.logger.info(f"   持仓: {pos['side']} {pos['quantity']:.4f} {pos['symbol']}")
                             self.logger.info(f"   开仓价: ${pos['entry_price']:.2f}")
                         
+                        # 发送执行成功通知
+                        try:
+                            # 刷新账户状态以获取最新数据
+                            self.execution_manager.refresh_account_state()
+                            updated_account_state = self.execution_manager.get_account_state()
+                            
+                            self.notification_manager.notify_execution_result(
+                                decision.model_dump() if hasattr(decision, 'model_dump') else decision,
+                                execution_result,
+                                updated_account_state
+                            )
+                        except Exception as e:
+                            self.logger.debug(f"发送执行结果通知失败: {e}")
+                        
                         # 交易执行成功后，保存或移除exit_plan
                         if decision.action in ['BUY', 'SELL'] and decision.exit_plan:
                             # 只保存通过置信度检测且成功开仓的exit_plan
@@ -452,11 +518,40 @@ class VibeTrader:
                             self.state_manager.remove_position_exit_plan(decision.symbol)
                     elif execution_result.get('status') == 'SKIPPED':
                         self.logger.info(f"ℹ️  {execution_result.get('message', '跳过执行')}")
+                        
+                        # 发送跳过通知
+                        try:
+                            self.notification_manager.notify_execution_result(
+                                decision.model_dump() if hasattr(decision, 'model_dump') else decision,
+                                execution_result,
+                                account_state
+                            )
+                        except Exception as e:
+                            self.logger.debug(f"发送通知失败: {e}")
                     else:
                         self.logger.warning(f"⚠️  执行失败: {execution_result.get('error', '未知错误')}")
+                        
+                        # 发送执行失败通知
+                        try:
+                            self.notification_manager.notify_execution_result(
+                                decision.model_dump() if hasattr(decision, 'model_dump') else decision,
+                                execution_result,
+                                account_state
+                            )
+                        except Exception as e:
+                            self.logger.debug(f"发送通知失败: {e}")
                     
                 except Exception as e:
                     self.logger.error(f"❌ 执行交易时发生错误: {e}", exc_info=True)
+                    
+                    # 发送错误通知
+                    try:
+                        self.notification_manager.notify_error(
+                            str(e),
+                            f"执行交易时发生错误: {decision.action} {decision.symbol if decision.symbol else ''}"
+                        )
+                    except Exception as notify_error:
+                        self.logger.debug(f"发送错误通知失败: {notify_error}")
             
             # 步骤 7: 记录周期信息
             self.logger.info("\n[步骤 6/6] 周期总结...")
