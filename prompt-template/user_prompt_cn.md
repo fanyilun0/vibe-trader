@@ -6,15 +6,9 @@
 
 **数据优化说明:** 为优化决策速度,每个指标序列统一提供最新的{{DATA_POINTS}}个数据点,足以捕捉关键趋势和动量变化。
 
----
-
 ### 市场情绪指标
 
-**恐惧贪婪指数**: {{FEAR_GREED_VALUE}} ({{FEAR_GREED_CLASSIFICATION}})
-
-{{FEAR_GREED_INTERPRETATION}}
-
----
+**恐惧贪婪指数**: {{FEAR_GREED_VALUE}}
 
 ### 所有币种的当前市场状态
 

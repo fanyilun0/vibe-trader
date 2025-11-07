@@ -6,15 +6,9 @@ It has been {{MINUTES_TRADING}} minutes since you started trading. The current t
 
 **Data Optimization Note:** To optimize decision speed, each indicator series provides the latest {{DATA_POINTS}} data points, sufficient to capture key trends and momentum changes.
 
----
-
 ### MARKET SENTIMENT INDICATORS
 
-**Fear & Greed Index**: {{FEAR_GREED_VALUE}} ({{FEAR_GREED_CLASSIFICATION}})
-
-{{FEAR_GREED_INTERPRETATION}}
-
----
+**Fear & Greed Index**: {{FEAR_GREED_VALUE}}
 
 ### CURRENT MARKET STATE FOR ALL COINS
 
