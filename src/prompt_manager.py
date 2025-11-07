@@ -153,7 +153,7 @@ class PromptManager:
 
 资金费率:{market_features.get('funding_rate', 0)}
 
-**日内序列(3 分钟间隔,最旧 → 最新):**
+**日内序列:**
 
 中间价:{format_list(market_features.get('mid_prices_list', []), 2, self.INTRADAY_DATA_POINTS)}
 
@@ -165,7 +165,7 @@ RSI 指标(7 周期):{format_list(market_features.get('rsi_7_period_list', []), 
 
 RSI 指标(14 周期):{format_list(market_features.get('rsi_14_period_list', []), 3, self.INTRADAY_DATA_POINTS)}
 
-**长期背景(4 小时时间框架):**
+**长期背景:**
 
 20 周期 EMA:{market_features.get('long_term_ema20', 0)} vs. 50 周期 EMA:{market_features.get('long_term_ema50', 0)}
 
@@ -177,88 +177,8 @@ MACD 指标:{format_list(market_features.get('long_term_macd_list', []), 3, self
 
 RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_list', []), 3, self.LONGTERM_DATA_POINTS)}
 
----
 """
         return section
-    
-    def _build_user_prompt_legacy(
-        self,
-        market_features_by_coin: Dict[str, Dict[str, Any]],
-        account_features: Dict[str, Any],
-        global_state: Dict[str, Any],
-        exit_plans: Dict[str, Dict[str, Any]] = None
-    ) -> str:
-        """
-        旧版硬编码方式构建用户提示词（向后兼容）
-        
-        当模板文件不存在时使用此方法
-        """
-        # 构建标题部分
-        minutes_trading = global_state.get('minutes_trading', 0)
-        current_timestamp = global_state.get('current_timestamp', datetime.now().isoformat())
-        invocation_count = global_state.get('invocation_count', 0)
-        
-        # 提取恐惧贪婪指数数据
-        fear_greed_value = global_state.get('fear_greed_value', 50)
-        fear_greed_classification = global_state.get('fear_greed_classification', 'Neutral')
-        
-        header = f"""自你开始交易以来已经过去了 {minutes_trading} 分钟。当前时间是 {current_timestamp},你已经被调用了 {invocation_count} 次。以下我们为你提供各种状态数据、价格数据和预测信号,以便你发现阿尔法。下面是你当前的账户信息、价值、业绩、持仓等。
-
-**以下所有价格或信号数据的排序方式为:最旧 → 最新**
-
-**时间框架说明:** 除非在章节标题中另有说明,日内序列以 **3 分钟间隔**提供。如果某个币种使用不同的间隔,会在该币种的章节中明确说明。
-
-**数据优化说明:** 为优化决策速度,每个指标序列统一提供最新的{self.INTRADAY_DATA_POINTS}个数据点,足以捕捉关键趋势和动量变化。
-
----
-
-### 市场情绪指标
-
-**恐惧贪婪指数**: {fear_greed_value}
-
-### 所有币种的当前市场状态
-
-"""
-        
-        # 构建每个币种的数据部分
-        coin_sections = []
-        for coin_symbol, market_features in market_features_by_coin.items():
-            coin_section = self.build_coin_data_section(coin_symbol, market_features)
-            coin_sections.append(coin_section)
-        
-        # 构建持仓文本
-        positions_text = self._build_positions_text(account_features, exit_plans)
-        
-        # 风险管理参数
-        max_position_size_pct = RiskManagementConfig.MAX_POSITION_SIZE_PCT * 100
-        max_open_positions = RiskManagementConfig.MAX_OPEN_POSITIONS
-        
-        # 账户信息
-        total_return_pct = account_features.get('total_return_percent', 0)
-        available_cash = account_features.get('available_cash', 0)
-        account_value = account_features.get('account_value', 0)
-        sharpe_ratio = account_features.get('sharpe_ratio', 0)
-        
-        account_section = f"""### 这是你的账户信息和业绩
-
-**风险管理约束:**
-- 最大单笔仓位规模: 账户价值的 {max_position_size_pct:.0f}%
-- 最大持仓数量: {max_open_positions}
-
-当前总回报率(百分比): {total_return_pct:.2f}%
-
-可用现金: {available_cash:.2f}
-
-当前账户价值: {account_value:.2f}
-
-{positions_text}
-
-夏普比率: {sharpe_ratio:.3f}"""
-        
-        # 组合完整的用户提示词
-        user_prompt = header + "\n".join(coin_sections) + "\n" + account_section
-        
-        return user_prompt
     
     def build_user_prompt(
         self,
@@ -279,9 +199,6 @@ RSI 指标(14 周期):{format_list(market_features.get('long_term_rsi_14_period_
         Returns:
             完整的用户提示词
         """
-        # 如果没有加载模板，使用旧的硬编码方式（向后兼容）
-        if not self.user_prompt_template:
-            return self._build_user_prompt_legacy(market_features_by_coin, account_features, global_state, exit_plans)
         
         # 准备模板占位符数据
         placeholders = self._prepare_template_placeholders(

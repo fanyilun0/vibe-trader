@@ -250,13 +250,14 @@ class BinanceAdapter(ExecutionInterface):
             logger.error(f"格式化数量失败: {e}，使用默认精度")
             return round(quantity, 3)
     
-    def execute_order(self, decision: Any, current_price: float) -> Dict[str, Any]:
+    def execute_order(self, decision: Any, current_price: float, decision_price: float = None) -> Dict[str, Any]:
         """
-        执行订单
+        执行订单（带滑点保护）
         
         Args:
             decision: TradingDecision 对象
             current_price: 当前市场价格
+            decision_price: AI决策时的价格（用于滑点保护）
             
         Returns:
             执行结果字典
@@ -264,6 +265,48 @@ class BinanceAdapter(ExecutionInterface):
         logger.info(f"📝 执行Binance订单: {decision.action} {decision.symbol}")
         
         try:
+            # 滑点保护检查（仅对开仓操作）
+            if decision.action in ['BUY', 'SELL'] and decision_price is not None:
+                from config import RiskManagementConfig
+                
+                if RiskManagementConfig.ENABLE_SLIPPAGE_PROTECTION:
+                    # 计算价格偏离
+                    price_deviation = abs(current_price - decision_price) / decision_price
+                    max_slippage = RiskManagementConfig.MAX_PRICE_SLIPPAGE_PCT
+                    
+                    if price_deviation > max_slippage:
+                        logger.warning(f"⚠️  价格偏离过大: {price_deviation*100:.2f}% > {max_slippage*100:.2f}%")
+                        logger.warning(f"   决策价格: ${decision_price:.2f}")
+                        logger.warning(f"   当前价格: ${current_price:.2f}")
+                        
+                        # 判断偏离方向，避免追高杀跌
+                        if decision.action == 'BUY' and current_price > decision_price:
+                            logger.warning("   价格已上涨，跳过买入以避免追高")
+                            return {
+                                'status': 'SKIPPED',
+                                'action': decision.action,
+                                'reason': 'price_too_high',
+                                'message': f'价格偏离 {price_deviation*100:.2f}% 超过阈值 {max_slippage*100:.2f}%，避免追高',
+                                'decision_price': decision_price,
+                                'current_price': current_price,
+                                'timestamp': datetime.now().isoformat()
+                            }
+                        elif decision.action == 'SELL' and current_price < decision_price:
+                            logger.warning("   价格已下跌，跳过卖出以避免追跌")
+                            return {
+                                'status': 'SKIPPED',
+                                'action': decision.action,
+                                'reason': 'price_too_low',
+                                'message': f'价格偏离 {price_deviation*100:.2f}% 超过阈值 {max_slippage*100:.2f}%，避免追跌',
+                                'decision_price': decision_price,
+                                'current_price': current_price,
+                                'timestamp': datetime.now().isoformat()
+                            }
+                        else:
+                            # 价格偏离但方向有利（买入时价格下跌，卖出时价格上涨）
+                            logger.info(f"✅ 价格偏离 {price_deviation*100:.2f}%，但方向有利，继续执行")
+                    else:
+                        logger.debug(f"✅ 滑点检查通过: {price_deviation*100:.2f}% <= {max_slippage*100:.2f}%")
             # HOLD 操作
             if decision.action == 'HOLD':
                 logger.info("决策为HOLD,不执行任何操作")

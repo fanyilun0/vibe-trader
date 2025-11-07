@@ -223,8 +223,11 @@ class RiskManagementConfig:
     # 允许交易的币种白名单
     ALLOWED_SYMBOLS: List[str] = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT', 'BNBUSDT']
     
-    # 最大价格滑点百分比
-    MAX_PRICE_SLIPPAGE_PCT = 0.02  # 2%
+    # 最大价格滑点百分比（用于滑点保护）
+    MAX_PRICE_SLIPPAGE_PCT = 0.02  # 0.5% - 防止在价格偏离过大时执行交易
+    
+    # 是否启用滑点保护
+    ENABLE_SLIPPAGE_PROTECTION = True
     
     @classmethod
     def to_dict(cls) -> Dict[str, Any]:
@@ -234,7 +237,8 @@ class RiskManagementConfig:
             'max_open_positions': cls.MAX_OPEN_POSITIONS,
             'min_confidence': cls.MIN_CONFIDENCE,
             'allowed_symbols': cls.ALLOWED_SYMBOLS,
-            'max_price_slippage_pct': cls.MAX_PRICE_SLIPPAGE_PCT
+            'max_price_slippage_pct': cls.MAX_PRICE_SLIPPAGE_PCT,
+            'enable_slippage_protection': cls.ENABLE_SLIPPAGE_PROTECTION
         }
 
 

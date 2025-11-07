@@ -395,14 +395,17 @@ class VibeTrader:
             # 步骤 5: 风险检查
             self.logger.info("\n[步骤 4/6] 风险管理检查...")
             
-            # 获取当前决策币种的价格
+            # 获取决策币种的价格（决策时的价格，用于滑点保护）
             if decision.symbol:
                 coin_symbol = decision.symbol.replace('USDT', '')
-                current_price = market_features_by_coin[coin_symbol]['current_price']
+                decision_price = market_features_by_coin[coin_symbol]['current_price']
             else:
                 # HOLD 决策，使用第一个币种的价格
                 first_coin = list(market_features_by_coin.keys())[0]
-                current_price = market_features_by_coin[first_coin]['current_price']
+                decision_price = market_features_by_coin[first_coin]['current_price']
+            
+            # 记录决策时的价格（用于后续滑点保护）
+            current_price = decision_price
             
             passed, reason = self.risk_manager.validate_decision(
                 decision,
@@ -470,10 +473,30 @@ class VibeTrader:
                 
                 # 执行订单 (通过执行管理器)
                 try:
-                    # current_price 已经在风险检查部分获取了，直接使用
+                    # 获取执行时的最新价格（可能与决策时有偏离）
+                    if decision.symbol:
+                        coin_symbol = decision.symbol.replace('USDT', '')
+                        # 重新获取最新价格
+                        try:
+                            latest_ticker = self.data_client.client.futures_symbol_ticker(symbol=decision.symbol)
+                            execution_price = float(latest_ticker.get('price', decision_price))
+                            self.logger.info(f"   决策价格: ${decision_price:.2f}")
+                            self.logger.info(f"   执行价格: ${execution_price:.2f}")
+                            if abs(execution_price - decision_price) / decision_price > 0.001:  # 0.1%
+                                price_change_pct = (execution_price - decision_price) / decision_price * 100
+                                self.logger.info(f"   价格变化: {price_change_pct:+.2f}%")
+                        except Exception as e:
+                            self.logger.debug(f"获取最新价格失败: {e}，使用决策价格")
+                            execution_price = decision_price
+                    else:
+                        execution_price = current_price
                     
-                    # 调用执行管理器
-                    execution_result = self.execution_manager.execute_decision(decision, current_price)
+                    # 调用执行管理器（传递决策价格用于滑点保护）
+                    execution_result = self.execution_manager.execute_decision(
+                        decision, 
+                        execution_price,
+                        decision_price  # 传递决策时的价格用于滑点保护
+                    )
                     
                     # 显示执行结果
                     if execution_result.get('status') == 'SUCCESS':

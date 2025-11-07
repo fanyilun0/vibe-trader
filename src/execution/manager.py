@@ -116,7 +116,8 @@ class ExecutionManager:
     def execute_decision(
         self,
         decision: Any,
-        current_price: float
+        current_price: float,
+        decision_price: float = None
     ) -> Dict[str, Any]:
         """
         执行交易决策
@@ -124,6 +125,7 @@ class ExecutionManager:
         Args:
             decision: AI 决策对象
             current_price: 当前市场价格
+            decision_price: AI决策时的价格（用于滑点保护）
             
         Returns:
             执行结果字典
@@ -131,7 +133,8 @@ class ExecutionManager:
         logger.info(f"执行管理器: 处理决策 {decision.action} {decision.symbol}")
         
         try:
-            result = self.adapter.execute_order(decision, current_price)
+            # 传递决策价格给适配器（用于滑点保护）
+            result = self.adapter.execute_order(decision, current_price, decision_price)
             return result
         except Exception as e:
             logger.error(f"执行决策时发生错误: {e}", exc_info=True)
