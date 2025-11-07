@@ -145,54 +145,10 @@ class BinanceAdapter(ExecutionInterface):
                     # 盈亏平衡价 = 入场价 * (1 - 手续费率 * 2)
                     break_even_price = entry_price * (1 - fee_rate)
                 
-                # 如果API返回的清算价格为0或不准确，手动计算
-                # 参考: https://www.binance.com/zh-CN/support/faq/b3c689c1f50a44cabb3a84e663b81d93
-                # 
-                # 全仓模式清算价格公式：
-                # 多仓: 清算价格 = (钱包余额 - 维持保证金金额) / (仓位数量 * (1 - 维持保证金率))
-                # 空仓: 清算价格 = (钱包余额 + 维持保证金金额) / (|仓位数量| * (1 + 维持保证金率))
-                #
-                # 注意：这个计算假设只有单个持仓。如果有多个持仓，需要考虑所有持仓的累计维持保证金。
-                
-                # 总是重新计算清算价格以确保准确性（API返回的可能不准确）
-                if entry_price > 0 and abs(position_amt) > 0:
-                    # 获取钱包余额
-                    wallet_balance = account_data.get('total_wallet_balance', 0.0)
-                    
-                    # 获取维持保证金率和维持保证金金额（根据仓位大小分层）
-                    mmr, mm_amount = self._get_maintenance_margin_rate(symbol, notional_value)
-                    
-                    # 计算清算价格
-                    if position_amt > 0:  # 多仓
-                        # 清算价格 = (WB - TMM) / (|PA| * (1 - MMR))
-                        numerator = wallet_balance - mm_amount
-                        denominator = abs(position_amt) * (1 - mmr)
-                        if denominator > 0:
-                            calculated_liq_price = numerator / denominator
-                        else:
-                            calculated_liq_price = 0
-                    else:  # 空仓
-                        # 清算价格 = (WB + TMM) / (|PA| * (1 + MMR))
-                        numerator = wallet_balance + mm_amount
-                        denominator = abs(position_amt) * (1 + mmr)
-                        if denominator > 0:
-                            calculated_liq_price = numerator / denominator
-                        else:
-                            calculated_liq_price = 0
-                    
-                    # 使用计算的清算价格（更准确）
-                    if calculated_liq_price > 0:
-                        liquidation_price = calculated_liq_price
-                        logger.debug(f"计算清算价格: {symbol} = ${liquidation_price:.2f} "
-                                   f"(钱包={wallet_balance:.2f}, MMR={mmr*100:.2f}%, MM金额={mm_amount:.2f})")
-                    
-                    # 如果计算结果不合理，使用API返回的值
-                    if position_amt > 0 and liquidation_price >= entry_price:
-                        logger.warning(f"多仓清算价格({liquidation_price:.2f})不应高于入场价({entry_price:.2f})，使用API值")
-                        liquidation_price = pos.get('liquidation_price', 0)
-                    elif position_amt < 0 and liquidation_price <= entry_price and liquidation_price > 0:
-                        logger.warning(f"空仓清算价格({liquidation_price:.2f})不应低于入场价({entry_price:.2f})，使用API值")
-                        liquidation_price = pos.get('liquidation_price', 0)
+                # 直接使用Binance API返回的清算价格
+                # 注意：币安API会自动计算清算价格，考虑了所有持仓和保证金情况
+                # 不需要手动计算，手动计算可能不准确（特别是多持仓情况）
+                logger.debug(f"使用API返回的清算价格: {symbol} = ${liquidation_price:.2f}")
                 
                 formatted_positions.append({
                     'symbol': symbol,
@@ -216,44 +172,6 @@ class BinanceAdapter(ExecutionInterface):
         except Exception as e:
             logger.error(f"获取持仓信息失败: {e}")
             return []
-    
-    def _get_maintenance_margin_rate(self, symbol: str, notional_value: float) -> tuple:
-        """
-        根据仓位名义价值获取维持保证金率和维持保证金额
-        
-        参考币安USDT永续合约维持保证金率分层:
-        https://www.binance.com/zh-CN/support/faq/b3c689c1f50a44cabb3a84e663b81d93
-        
-        Args:
-            symbol: 交易对符号（如BTCUSDT）
-            notional_value: 仓位名义价值（USDT）
-            
-        Returns:
-            (维持保证金率, 维持保证金额) 元组
-        """
-        # BTC/USDT 永续合约维持保证金率分层
-        # 不同交易对有不同的分层，这里提供BTC的示例
-        btc_brackets = [
-            (50000, 0.004, 0),           # 0-50,000 USDT: 0.4%, 维持保证金0
-            (250000, 0.005, 50),         # 50,000-250,000: 0.5%, 维持保证金50
-            (1000000, 0.01, 1300),       # 250,000-1,000,000: 1%, 维持保证金1,300
-            (10000000, 0.025, 16300),    # 1,000,000-10,000,000: 2.5%, 维持保证金16,300
-            (20000000, 0.05, 266300),    # 10,000,000-20,000,000: 5%, 维持保证金266,300
-            (50000000, 0.1, 1266300),    # 20,000,000-50,000,000: 10%, 维持保证金1,266,300
-            (100000000, 0.125, 2516300), # 50,000,000-100,000,000: 12.5%, 维持保证金2,516,300
-            (float('inf'), 0.15, 5016300) # 100,000,000+: 15%, 维持保证金5,016,300
-        ]
-        
-        # ETH 和其他主流币种可以使用类似的分层
-        # 这里简化处理，所有币种使用BTC的分层
-        brackets = btc_brackets
-        
-        for max_notional, mmr, mm_amount in brackets:
-            if notional_value <= max_notional:
-                return mmr, mm_amount
-        
-        # 默认返回最高档
-        return 0.15, 5016300
     
     def get_account_balance(self) -> Dict[str, float]:
         """
