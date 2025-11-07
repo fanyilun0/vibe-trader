@@ -408,6 +408,16 @@ class BinanceAdapter(ExecutionInterface):
             logger.info(f"   名义价值: ${nominal_value:.2f}")
             logger.info(f"   杠杆: {leverage}x")
             
+            # 先设置杠杆（必须在下单前设置）
+            try:
+                self.client.futures_change_leverage(
+                    symbol=decision.symbol,
+                    leverage=leverage
+                )
+                logger.info(f"✅ 杠杆设置成功: {leverage}x")
+            except Exception as e:
+                logger.warning(f"⚠️ 杠杆设置失败: {e}，将使用当前杠杆")
+            
             # 执行市价单
             order_result = self.client.futures_create_order(
                 symbol=decision.symbol,
@@ -419,6 +429,37 @@ class BinanceAdapter(ExecutionInterface):
             logger.info(f"✅ 订单提交成功")
             logger.info(f"   订单ID: {order_result.get('orderId')}")
             logger.info(f"   状态: {order_result.get('status')}")
+            
+            # 设置止盈止损（如果AI决策中包含）
+            if decision.exit_plan:
+                try:
+                    # 确定止盈止损的方向（与开仓方向相反）
+                    sl_tp_side = 'SELL' if side == 'BUY' else 'BUY'
+                    
+                    # 设置止损单
+                    if decision.exit_plan.stop_loss:
+                        stop_loss_order = self.client.futures_create_order(
+                            symbol=decision.symbol,
+                            side=sl_tp_side,
+                            type='STOP_MARKET',
+                            stopPrice=decision.exit_plan.stop_loss,
+                            closePosition=True
+                        )
+                        logger.info(f"✅ 止损单设置成功: {decision.exit_plan.stop_loss}")
+                    
+                    # 设置止盈单
+                    if decision.exit_plan.take_profit:
+                        take_profit_order = self.client.futures_create_order(
+                            symbol=decision.symbol,
+                            side=sl_tp_side,
+                            type='TAKE_PROFIT_MARKET',
+                            stopPrice=decision.exit_plan.take_profit,
+                            closePosition=True
+                        )
+                        logger.info(f"✅ 止盈单设置成功: {decision.exit_plan.take_profit}")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ 止盈止损设置失败: {e}")
             
             # 刷新账户数据缓存
             self.refresh_account_data()
